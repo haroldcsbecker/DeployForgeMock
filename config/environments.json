@@ -1,0 +1,10 @@
+{
+  "hmg": {
+    "config": "hmg/config.json",
+    "color": "teal"
+  },
+  "prod": {
+    "config": "prod/config.json",
+    "color": "blue"
+  }
+}
