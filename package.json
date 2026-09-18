@@ -4,6 +4,8 @@
   "private": true,
   "description": "Tiny deployment target used to showcase DeployForge.",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "demo:start": "node runtime/server.mjs",
+    "demo:check": "node --check runtime/server.mjs"
   }
 }
