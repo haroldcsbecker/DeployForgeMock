@@ -105,9 +105,9 @@ artifacts/
   <artifact-digest>/
 \`\`\`
 
-DEV is refreshed from the latest \`origin/main\` when the runtime starts. HMG is initially a main snapshot and is replaced by the composed candidate when DeployForge calls the HMG deployment endpoint. When QA rejects an HMG candidate, DeployForge calls `/deploy/hmg/reset` with the batch's frozen main SHA so the physical HMG directory is restored before another candidate is promoted. PROD is initially a main snapshot and changes only when DeployForge calls the production deployment endpoint.
+DEV is refreshed from the latest \`origin/main\` when the runtime starts. HMG is initially a base-branch snapshot and is replaced by the composed candidate when DeployForge calls the HMG deployment endpoint. When QA rejects an HMG candidate, DeployForge calls `/deploy/hmg/reset` with the batch's frozen base-branch SHA so the physical HMG directory is restored before another candidate is promoted. PROD is initially a base-branch snapshot and changes only when DeployForge calls the production deployment endpoint.
 
-The local runtime uses the frozen batch data supplied by DeployForge. HMG fetches each exact PR head, verifies the SHA, merges the PRs in batch order on top of the frozen main SHA, stores the resulting files as a local immutable artifact, and copies that artifact into \`environments/hmg/current/\`.
+The local runtime uses the frozen batch data supplied by DeployForge. HMG fetches each exact PR head, verifies the SHA, merges the PRs in batch order on top of the frozen base-branch SHA, stores the resulting files as a local immutable artifact, and copies that artifact into \`environments/hmg/current/\`.
 
 Production copies the same materialized artifact into \`environments/prod/current/\`; it does not rebuild it. Rollback copies the previous materialized artifact.
 
@@ -126,7 +126,7 @@ PRODUCTION_HEALTH_URL=http://127.0.0.1:8090/prod/health
 STABLE_PACKAGE_PROMOTE_URL=http://127.0.0.1:8090/package/stable
 \`\`\`
 
-Keep the normal GitHub App and MongoDB settings. The deployment runtime uses the local DeployForgeMock checkout and its Git remote.
+Keep the normal GitHub App and MongoDB settings. The deployment runtime uses the local DeployForgeMock checkout and its Git remote. Set `DEPLOYFORGE_MOCK_BASE_BRANCH=master` when the target repository uses `master` instead of `main`.
 
 For the local demo, keep the three QA eligibility gates disabled:
 
