@@ -123,6 +123,7 @@ HMG_DEPLOY_URL=http://127.0.0.1:8090/deploy/hmg
 HMG_READY_URL=http://127.0.0.1:8090/hmg/ready
 PRODUCTION_DEPLOY_URL=http://127.0.0.1:8090/deploy/prod
 PRODUCTION_HEALTH_URL=http://127.0.0.1:8090/prod/health
+STABLE_PACKAGE_PROMOTE_URL=http://127.0.0.1:8090/package/stable
 \`\`\`
 
 Keep the normal GitHub App and MongoDB settings. The deployment runtime uses the local DeployForgeMock checkout and its Git remote.
