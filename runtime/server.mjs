@@ -201,16 +201,14 @@ const staticServer = (environment, port) => createServer((request, response) => 
 
 ensureDirs();
 
-if (!existsSync(join(environments.dev.root, 'index.html'))) {
-  clearDirectory(environments.dev.root);
-  archiveRef('main', environments.dev.root);
-  writeRuntimeMetadata(environments.dev.root, {
-    environment: 'DEV',
-    feature: 'Main branch',
-    version: runGit(['rev-parse', 'main']).slice(0, 12),
-    build: 'main',
-  });
-}
+clearDirectory(environments.dev.root);
+archiveRef('main', environments.dev.root);
+writeRuntimeMetadata(environments.dev.root, {
+  environment: 'DEV',
+  feature: 'Main branch',
+  version: runGit(['rev-parse', 'main']).slice(0, 12),
+  build: 'main',
+});
 
 for (const [name, environment] of Object.entries(environments)) {
   if (name !== 'dev' && !existsSync(join(environment.root, 'index.html'))) {
