@@ -93,3 +93,9 @@ h1 {
 .meta span {
   opacity: .65;
 }
+
+.meta strong {
+  max-width: 72%;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
