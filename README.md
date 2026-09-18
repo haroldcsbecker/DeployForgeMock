@@ -105,7 +105,7 @@ artifacts/
   <artifact-digest>/
 \`\`\`
 
-DEV is refreshed from the latest \`origin/main\` when the runtime starts. HMG is initially a main snapshot and is replaced by the composed candidate when DeployForge calls the HMG deployment endpoint. PROD is initially a main snapshot and changes only when DeployForge calls the production deployment endpoint.
+DEV is refreshed from the latest \`origin/main\` when the runtime starts. HMG is initially a main snapshot and is replaced by the composed candidate when DeployForge calls the HMG deployment endpoint. When QA rejects an HMG candidate, DeployForge calls `/deploy/hmg/reset` with the batch's frozen main SHA so the physical HMG directory is restored before another candidate is promoted. PROD is initially a main snapshot and changes only when DeployForge calls the production deployment endpoint.
 
 The local runtime uses the frozen batch data supplied by DeployForge. HMG fetches each exact PR head, verifies the SHA, merges the PRs in batch order on top of the frozen main SHA, stores the resulting files as a local immutable artifact, and copies that artifact into \`environments/hmg/current/\`.
 
