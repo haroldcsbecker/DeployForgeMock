@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, watch } from 'node:fs';
 import { join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -41,6 +41,53 @@ const clearDirectory = (directory) => {
 
 const writeRuntimeMetadata = (directory, metadata) => {
   writeFileSync(join(directory, 'deployforge-runtime.json'), JSON.stringify(metadata, null, 2) + '\n', 'utf8');
+};
+
+const DEV_EXCLUDED = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees']);
+
+const syncDevProject = () => {
+  const destination = environments.dev.root;
+  clearDirectory(destination);
+
+  for (const entry of readdirSync(REPO, { withFileTypes: true })) {
+    if (DEV_EXCLUDED.has(entry.name)) continue;
+    cpSync(join(REPO, entry.name), join(destination, entry.name), { recursive: true });
+  }
+
+  writeRuntimeMetadata(destination, {
+    environment: 'DEV',
+    feature: 'Local checkout',
+    version: runGit(['rev-parse', 'HEAD']),
+    build: 'working-tree',
+    synchronizedAt: new Date().toISOString(),
+  });
+};
+
+const startDevSync = () => {
+  let timer;
+  const schedule = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      try { syncDevProject(); } catch (error) {
+        console.error('DEV sync failed:', error instanceof Error ? error.message : error);
+      }
+    }, 100);
+  };
+
+  try {
+    watch(REPO, { recursive: true }, (_eventType, filename) => {
+      if (!filename) return;
+      const path = String(filename);
+      if (path.split(/[\\/]/).some((part) => DEV_EXCLUDED.has(part))) return;
+      schedule();
+    });
+  } catch (error) {
+    console.warn('Recursive DEV watch unavailable; using polling:', error instanceof Error ? error.message : error);
+  }
+
+  setInterval(() => {
+    try { syncDevProject(); } catch {}
+  }, 2000);
 };
 
 const installArtifact = (digest, environment, metadata) => {
@@ -202,14 +249,8 @@ const staticServer = (environment, port) => createServer((request, response) => 
 ensureDirs();
 runGit(['fetch', 'origin', 'main']);
 
-clearDirectory(environments.dev.root);
-archiveRef('origin/main', environments.dev.root);
-writeRuntimeMetadata(environments.dev.root, {
-  environment: 'DEV',
-  feature: 'Main branch',
-  version: runGit(['rev-parse', 'origin/main']).slice(0, 12),
-  build: 'main',
-});
+syncDevProject();
+startDevSync();
 
 for (const [name, environment] of Object.entries(environments)) {
   if (name !== 'dev' && !existsSync(join(environment.root, 'index.html'))) {
