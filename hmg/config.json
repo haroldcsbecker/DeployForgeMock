@@ -1,0 +1,5 @@
+{
+  "environment": "HMG",
+  "description": "Shared homologation environment for QA.",
+  "defaultFeature": "DeployForge candidate"
+}
