@@ -43,6 +43,29 @@ const writeRuntimeMetadata = (directory, metadata) => {
   writeFileSync(join(directory, 'deployforge-runtime.json'), JSON.stringify(metadata, null, 2) + '\n', 'utf8');
 };
 
+const findLatestArtifact = () => {
+  if (!existsSync(ARTIFACT_ROOT)) return undefined;
+
+  let latest;
+  for (const entry of readdirSync(ARTIFACT_ROOT, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+
+    const manifest = join(ARTIFACT_ROOT, entry.name, 'deployforge-artifact.json');
+    if (!existsSync(manifest)) continue;
+
+    try {
+      const metadata = JSON.parse(readFileSync(manifest, 'utf8'));
+      if (!metadata.artifactDigest || !metadata.createdAt) continue;
+
+      if (!latest || new Date(metadata.createdAt).getTime() > new Date(latest.createdAt).getTime()) {
+        latest = metadata;
+      }
+    } catch {}
+  }
+
+  return latest;
+};
+
 const DEV_EXCLUDED = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees']);
 
 const syncDevProject = () => {
@@ -54,11 +77,20 @@ const syncDevProject = () => {
     cpSync(join(REPO, entry.name), join(destination, entry.name), { recursive: true });
   }
 
+  const worktreeSha = runGit(['rev-parse', 'HEAD']);
+  const mainSha = runGit(['rev-parse', 'origin/main']);
+  const latestArtifact = findLatestArtifact();
+
   writeRuntimeMetadata(destination, {
     environment: 'DEV',
     feature: 'Local checkout',
-    version: runGit(['rev-parse', 'HEAD']),
+    version: worktreeSha,
+    sourceMainSha: mainSha,
+    worktreeSha,
     build: 'working-tree',
+    artifactDigest: latestArtifact?.artifactDigest,
+    artifactCandidateId: latestArtifact?.candidateId,
+    artifactIntegrationSha: latestArtifact?.integrationSha,
     synchronizedAt: new Date().toISOString(),
   });
 };
