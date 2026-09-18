@@ -1,0 +1,119 @@
+name: DeployForge Candidate Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: Candidate identifier
+        required: true
+        type: string
+      source_repository:
+        description: Source repository in owner/name format
+        required: true
+        type: string
+      base_sha:
+        description: Frozen base main SHA
+        required: true
+        type: string
+      pr_numbers:
+        description: Comma-separated frozen PR numbers
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+run-name: Candidate build ${{ inputs.candidate_id }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout frozen base
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.base_sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          set -euo pipefail
+          git config user.name "DeployForge Candidate Builder"
+          git config user.email "deployforge@users.noreply.github.com"
+
+      - name: Compose frozen PR heads
+        id: compose
+        env:
+          PR_NUMBERS: ${{ inputs.pr_numbers }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra NUMBERS <<< "$PR_NUMBERS"
+          for number in "${NUMBERS[@]}"; do
+            git fetch origin "refs/pull/${number}/head" --quiet
+            git merge --no-ff --no-edit FETCH_HEAD
+          done
+          echo "integration_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set image
+        id: image
+        env:
+          OWNER: ${{ github.repository_owner }}
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
+        run: |
+          set -euo pipefail
+          echo "image=ghcr.io/${OWNER,,}/deployforge-candidates/${CANDIDATE_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push candidate
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.image }}
+
+      - name: Resolve pushed digest
+        id: digest
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          DIGEST="$(docker buildx imagetools inspect "$IMAGE" | awk '$1=="Digest:" {print $2; exit}')"
+          test -n "$DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Publish candidate metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
+          INTEGRATION_SHA: ${{ steps.compose.outputs.integration_sha }}
+          DIGEST: ${{ steps.digest.outputs.digest }}
+          REPOSITORY: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          ARTIFACT_REPOSITORY="${REPOSITORY#ghcr.io/}"
+          printf '%s\n' \
+            "candidate_id=${CANDIDATE_ID}" \
+            "integration_sha=${INTEGRATION_SHA}" \
+            "artifact_registry=ghcr.io" \
+            "artifact_repository=${ARTIFACT_REPOSITORY}" \
+            "artifact_digest=${DIGEST}" > candidate-notes.txt
+
+          gh release create "candidate-${CANDIDATE_ID}" \
+            --target main \
+            --title "Candidate ${CANDIDATE_ID}" \
+            --notes-file candidate-notes.txt \
+            || gh release edit "candidate-${CANDIDATE_ID}" \
+            --title "Candidate ${CANDIDATE_ID}" \
+            --notes-file candidate-notes.txt
