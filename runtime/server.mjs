@@ -115,7 +115,7 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
       if (!Number.isInteger(number) || number <= 0) throw new Error('Cannot resolve PR number for ' + prId);
 
       const ref = 'refs/deployforge-demo/pr-' + number;
-      runGit(['fetch', 'origin', 'refs/pull/' + number + '/head:' + ref]);
+      runGit(['fetch', 'origin', '+refs/pull/' + number + '/head:' + ref]);
 
       const actualSha = runGit(['rev-parse', ref]);
       if (actualSha !== expectedSha) throw new Error('PR #' + number + ' changed from ' + expectedSha + ' to ' + actualSha);
@@ -161,6 +161,41 @@ const parseBody = async (request) => {
 
 const controlServer = createServer(async (request, response) => {
   try {
+    if (request.method === 'POST' && request.url === '/artifact/build') {
+      const body = await parseBody(request);
+      const candidateId = String(body.candidateId ?? '');
+      const batchId = String(body.batchId ?? '');
+      const repository = String(body.repository ?? '');
+      const baseMainSha = String(body.baseMainSha ?? '');
+      const prNumbers = Array.isArray(body.prNumbers) ? body.prNumbers.map(Number) : [];
+      const prHeadShas = body.prHeadShas && typeof body.prHeadShas === 'object' ? body.prHeadShas : {};
+
+      if (!candidateId || !batchId || !repository || !baseMainSha || !prNumbers.length) {
+        return json(response, 400, { error: 'candidateId, batchId, repository, baseMainSha and prNumbers are required' });
+      }
+
+      const digestInput = JSON.stringify({ repository, baseMainSha, prNumbers, prHeadShas });
+      const crypto = await import('node:crypto');
+      const artifactDigest = 'sha256:' + crypto.createHash('sha256').update(digestInput).digest('hex');
+      const manifest = createCandidateArtifact({
+        candidateId,
+        batchId,
+        artifactDigest,
+        repository,
+        baseMainSha,
+        prNumbers,
+        prHeadShas,
+      });
+
+      return json(response, 200, {
+        integrationSha: manifest.integrationSha,
+        artifactDigest: manifest.artifactDigest,
+        artifactRegistry: 'local',
+        artifactRepository: repository,
+        immutable: true,
+      });
+    }
+
     if (request.method === 'POST' && request.url === '/artifact/verify') {
       const body = await parseBody(request);
       const exists = typeof body.digest === 'string' && existsSync(manifestPath(body.digest));
