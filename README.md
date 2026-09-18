@@ -1,4 +1,4 @@
-# DeployForge Mock
+# Deploy Forge Mock
 
 A deliberately small deployment target used to demonstrate the DeployForge workflow.
 
