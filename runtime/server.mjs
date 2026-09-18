@@ -347,7 +347,7 @@ const controlServer = createServer(async (request, response) => {
       const manifest = JSON.parse(readFileSync(manifestPath(body.artifactDigest), 'utf8'));
       const releaseBuild = body.rollbackOfReleaseId
         ? 'rollback-' + String(body.releaseId).replace(/^release-/, '')
-        : String(body.releaseId);
+        : 'release-' + String(body.candidateId).replace(/^candidate-/, '');
 
       installArtifact(body.artifactDigest, environments.prod, {
         environment: 'PROD',
