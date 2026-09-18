@@ -69,6 +69,8 @@ jobs:
           push: true
           tags: |
             ${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}
+            ${{ steps.image.outputs.image }}:dev
+            ${{ steps.image.outputs.image }}:hmg
             ${{ steps.image.outputs.image }}:${{ inputs.stable_tag || 'stable' }}
 
       - name: Resolve digest
