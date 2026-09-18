@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+  statuses: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -12,4 +16,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm test
+      - id: tests
+        run: npm test
+      - name: Publish DeployForge CI status
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ steps.tests.outcome == 'success' && 'success' || 'failure' }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api \
+            --method POST \
+            "/repos/${{ github.repository }}/statuses/${SHA}" \
+            -f state="${RESULT}" \
+            -f context="deployforge/ci" \
+            -f description="DeployForge mock CI"
