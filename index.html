@@ -27,6 +27,10 @@
           <span>Build</span>
           <strong id="build">loading…</strong>
         </div>
+        <div class="meta">
+          <span>Artifact</span>
+          <strong id="artifact">loading…</strong>
+        </div>
       </section>
     </main>
 
@@ -38,7 +42,8 @@
           environment: "LOCAL",
           feature: "Default UI",
           version: "dev",
-          build: "local"
+          build: "local",
+          artifactDigest: ""
         };
 
         try {
@@ -50,11 +55,13 @@
         const feature = params.get("feature") || metadata.feature;
         const version = params.get("version") || metadata.version;
         const build = params.get("build") || metadata.build;
+        const artifact = params.get("artifact") || metadata.artifactDigest || "none";
 
         document.querySelector("#environment").textContent = environment;
         document.querySelector("#feature").textContent = "Feature: " + feature;
         document.querySelector("#version").textContent = version;
         document.querySelector("#build").textContent = build;
+        document.querySelector("#artifact").textContent = artifact;
         document.body.dataset.environment = environment.toLowerCase();
       }
 
