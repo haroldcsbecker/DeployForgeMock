@@ -1,0 +1,59 @@
+name: DeployForge Stable Package Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_repository:
+        description: GHCR package repository without registry
+        required: true
+        type: string
+      artifact_digest:
+        description: Exact immutable artifact digest to promote
+        required: true
+        type: string
+      stable_tag:
+        description: Stable package tag
+        required: true
+        default: stable
+        type: string
+      version:
+        description: Human-readable stable version
+        required: true
+        type: string
+      release_id:
+        description: DeployForge release identifier
+        required: true
+        type: string
+
+permissions:
+  packages: write
+
+run-name: Promote stable package ${{ inputs.version }}
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Promote exact digest to stable
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.package_repository }}
+          DIGEST: ${{ inputs.artifact_digest }}
+          STABLE_TAG: ${{ inputs.stable_tag }}
+        run: |
+          set -euo pipefail
+          test "${DIGEST#sha256:}" != "${DIGEST}"
+          docker buildx imagetools inspect "${IMAGE}@${DIGEST}"
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${STABLE_TAG}" \
+            "${IMAGE}@${DIGEST}"
+          docker buildx imagetools inspect "${IMAGE}:${STABLE_TAG}"
