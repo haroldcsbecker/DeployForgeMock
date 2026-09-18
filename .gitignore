@@ -1,0 +1,4 @@
+.runtime-worktrees/
+artifacts/*
+!artifacts/.gitkeep
+environments/*/current/
