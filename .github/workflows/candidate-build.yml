@@ -52,7 +52,7 @@ jobs:
         id: compose
         env:
           PR_NUMBERS: ${{ inputs.pr_numbers }}
-        PR_HEAD_SHAS: ${{ inputs.pr_head_shas }}
+          PR_HEAD_SHAS: ${{ inputs.pr_head_shas }}
         run: |
           set -euo pipefail
           IFS=',' read -ra NUMBERS <<< "$PR_NUMBERS"
