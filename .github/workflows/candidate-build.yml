@@ -64,7 +64,8 @@ jobs:
           CANDIDATE_ID: ${{ inputs.candidate_id }}
         run: |
           set -euo pipefail
-          echo "image=ghcr.io/${OWNER,,}/deployforge-candidates/${CANDIDATE_ID}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${OWNER,,}/deployforgemock" >> "$GITHUB_OUTPUT"
+          echo "tag=${CANDIDATE_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -81,12 +82,12 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ steps.image.outputs.image }}
+          tags: ${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}
 
       - name: Resolve pushed digest
         id: digest
         env:
-          IMAGE: ${{ steps.image.outputs.image }}
+          IMAGE: ${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}
         run: |
           set -euo pipefail
           DIGEST="$(docker buildx imagetools inspect "$IMAGE" | awk '$1=="Digest:" {print $2; exit}')"
