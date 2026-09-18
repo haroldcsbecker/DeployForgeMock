@@ -200,24 +200,25 @@ const staticServer = (environment, port) => createServer((request, response) => 
 });
 
 ensureDirs();
+runGit(['fetch', 'origin', 'main']);
 
 clearDirectory(environments.dev.root);
-archiveRef('main', environments.dev.root);
+archiveRef('origin/main', environments.dev.root);
 writeRuntimeMetadata(environments.dev.root, {
   environment: 'DEV',
   feature: 'Main branch',
-  version: runGit(['rev-parse', 'main']).slice(0, 12),
+  version: runGit(['rev-parse', 'origin/main']).slice(0, 12),
   build: 'main',
 });
 
 for (const [name, environment] of Object.entries(environments)) {
   if (name !== 'dev' && !existsSync(join(environment.root, 'index.html'))) {
     clearDirectory(environment.root);
-    archiveRef('main', environment.root);
+    archiveRef('origin/main', environment.root);
     writeRuntimeMetadata(environment.root, {
       environment: name.toUpperCase(),
       feature: name === 'hmg' ? 'Main branch' : 'Last production baseline',
-      version: runGit(['rev-parse', 'main']).slice(0, 12),
+      version: runGit(['rev-parse', 'origin/main']).slice(0, 12),
       build: 'main',
     });
   }
