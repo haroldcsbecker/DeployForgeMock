@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DeployForge Mock</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <p class="eyebrow">DeployForge Mock</p>
+        <h1 id="environment">ENVIRONMENT</h1>
+        <p id="feature">Feature: loading…</p>
+
+        <div class="counter">
+          <button id="decrement" type="button">−</button>
+          <strong id="count">0</strong>
+          <button id="increment" type="button">+</button>
+        </div>
+
+        <div class="meta">
+          <span>Version</span>
+          <strong id="version">loading…</strong>
+        </div>
+        <div class="meta">
+          <span>Build</span>
+          <strong id="build">loading…</strong>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const environment = params.get("env") || "LOCAL";
+      const feature = params.get("feature") || "Default UI";
+      const version = params.get("version") || "dev";
+      const build = params.get("build") || "local";
+
+      document.querySelector("#environment").textContent = environment;
+      document.querySelector("#feature").textContent = "Feature: " + feature;
+      document.querySelector("#version").textContent = version;
+      document.querySelector("#build").textContent = build;
+
+      const countElement = document.querySelector("#count");
+      let count = 0;
+
+      const render = () => {
+        countElement.textContent = count;
+        document.body.dataset.environment = environment.toLowerCase();
+      };
+
+      document.querySelector("#increment").addEventListener("click", () => {
+        count += 1;
+        render();
+      });
+
+      document.querySelector("#decrement").addEventListener("click", () => {
+        count -= 1;
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
