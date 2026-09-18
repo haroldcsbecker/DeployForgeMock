@@ -1,0 +1,9 @@
+{
+  "name": "deployforge-mock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiny deployment target used to showcase DeployForge.",
+  "scripts": {
+    "test": "node --test"
+  }
+}
