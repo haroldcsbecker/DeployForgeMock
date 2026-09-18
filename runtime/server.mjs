@@ -98,6 +98,22 @@ const installArtifact = (digest, environment, metadata) => {
   writeRuntimeMetadata(environment.root, metadata);
 };
 
+const installGitRef = (ref, environment, metadata) => {
+  const temp = join(ROOT, '.runtime-worktrees', randomUUID());
+  mkdirSync(join(ROOT, '.runtime-worktrees'), { recursive: true });
+
+  try {
+    runGit(['cat-file', '-e', ref + '^{commit}']);
+    clearDirectory(temp);
+    archiveRef(ref, temp);
+    clearDirectory(environment.root);
+    cpSync(temp, environment.root, { recursive: true });
+    writeRuntimeMetadata(environment.root, metadata);
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+};
+
 const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, repository, baseMainSha, prNumbers, prHeadShas }) => {
   const destination = artifactDir(artifactDigest);
   const existingManifest = manifestPath(artifactDigest);
@@ -213,6 +229,29 @@ const controlServer = createServer(async (request, response) => {
         artifactDigest: manifest.artifactDigest,
       });
       return json(response, 200, { deploymentId: 'hmg-' + manifest.candidateId + '-' + digestKey(manifest.artifactDigest).slice(-16) });
+    }
+
+    if (request.method === 'POST' && request.url === '/deploy/hmg/reset') {
+      const body = await parseBody(request);
+      const mainSha = String(body.mainSha ?? '');
+      if (!mainSha) {
+        return json(response, 400, { error: 'mainSha is required' });
+      }
+
+      runGit(['fetch', 'origin', 'main']);
+      installGitRef(mainSha, environments.hmg, {
+        environment: 'HMG',
+        feature: 'Main branch',
+        version: mainSha.slice(0, 12),
+        build: 'main',
+        reset: true,
+        resetAt: new Date().toISOString(),
+      });
+
+      return json(response, 200, {
+        deploymentId: 'hmg-reset-' + mainSha.slice(0, 12),
+        mainSha,
+      });
     }
 
     if (request.method === 'POST' && request.url === '/hmg/ready') {
