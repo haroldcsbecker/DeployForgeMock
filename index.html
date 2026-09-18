@@ -32,15 +32,33 @@
 
     <script>
       const params = new URLSearchParams(window.location.search);
-      const environment = params.get("env") || "LOCAL";
-      const feature = params.get("feature") || "Default UI";
-      const version = params.get("version") || "dev";
-      const build = params.get("build") || "local";
 
-      document.querySelector("#environment").textContent = environment;
-      document.querySelector("#feature").textContent = "Feature: " + feature;
-      document.querySelector("#version").textContent = version;
-      document.querySelector("#build").textContent = build;
+      async function loadRuntimeMetadata() {
+        let metadata = {
+          environment: "LOCAL",
+          feature: "Default UI",
+          version: "dev",
+          build: "local"
+        };
+
+        try {
+          const response = await fetch("/deployforge-runtime.json", { cache: "no-store" });
+          if (response.ok) metadata = { ...metadata, ...(await response.json()) };
+        } catch {}
+
+        const environment = params.get("env") || metadata.environment;
+        const feature = params.get("feature") || metadata.feature;
+        const version = params.get("version") || metadata.version;
+        const build = params.get("build") || metadata.build;
+
+        document.querySelector("#environment").textContent = environment;
+        document.querySelector("#feature").textContent = "Feature: " + feature;
+        document.querySelector("#version").textContent = version;
+        document.querySelector("#build").textContent = build;
+        document.body.dataset.environment = environment.toLowerCase();
+      }
+
+      void loadRuntimeMetadata();
 
       const countElement = document.querySelector("#count");
       let count = 0;
