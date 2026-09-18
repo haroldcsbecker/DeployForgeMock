@@ -25,6 +25,21 @@ const ensureDirs = () => {
 const digestKey = (digest) => digest.replace(/[^a-zA-Z0-9._-]/g, '_');
 const artifactDir = (digest) => join(ARTIFACT_ROOT, digestKey(digest));
 const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact.json');
+const originBuildPath = join(ROOT, 'origin-build.json');
+
+const readOriginBuild = () => {
+  if (!existsSync(originBuildPath)) return undefined;
+  try {
+    const value = JSON.parse(readFileSync(originBuildPath, 'utf8'));
+    return value && typeof value === 'object' ? value : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const writeOriginBuild = (metadata) => {
+  writeFileSync(originBuildPath, JSON.stringify(metadata, null, 2) + '\n', 'utf8');
+};
 
 const runGit = (args, cwd = REPO) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 
@@ -66,6 +81,8 @@ const findLatestArtifact = () => {
   return latest;
 };
 
+const resolveOriginBuild = () => readOriginBuild() ?? findLatestArtifact();
+
 const DEV_EXCLUDED = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees']);
 
 const syncDevProject = () => {
@@ -79,18 +96,19 @@ const syncDevProject = () => {
 
   const worktreeSha = runGit(['rev-parse', 'HEAD']);
   const mainSha = runGit(['rev-parse', 'origin/main']);
-  const latestArtifact = findLatestArtifact();
+  const originBuild = resolveOriginBuild();
 
   writeRuntimeMetadata(destination, {
     environment: 'DEV',
-    feature: 'Local checkout',
-    version: worktreeSha,
+    feature: originBuild?.feature ?? 'Origin main',
+    version: originBuild?.version ?? originBuild?.integrationSha ?? mainSha,
+    build: originBuild?.build ?? originBuild?.candidateId ?? 'origin-main',
+    artifactDigest: originBuild?.artifactDigest,
+    artifactCandidateId: originBuild?.artifactCandidateId ?? originBuild?.candidateId,
+    artifactIntegrationSha: originBuild?.artifactIntegrationSha ?? originBuild?.integrationSha,
     sourceMainSha: mainSha,
     worktreeSha,
-    build: 'working-tree',
-    artifactDigest: latestArtifact?.artifactDigest,
-    artifactCandidateId: latestArtifact?.candidateId,
-    artifactIntegrationSha: latestArtifact?.integrationSha,
+    source: 'origin-build + local worktree',
     synchronizedAt: new Date().toISOString(),
   });
 };
@@ -253,13 +271,23 @@ const controlServer = createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/deploy/hmg') {
       const body = await parseBody(request);
       const manifest = createCandidateArtifact(body);
-      installArtifact(manifest.artifactDigest, environments.hmg, {
-        environment: 'HMG',
+      const originBuild = {
         feature: 'Candidate ' + manifest.candidateId,
         version: manifest.integrationSha.slice(0, 12),
         build: manifest.candidateId,
         artifactDigest: manifest.artifactDigest,
+        artifactCandidateId: manifest.candidateId,
+        artifactIntegrationSha: manifest.integrationSha,
+        originMainSha: manifest.baseMainSha,
+        updatedAt: new Date().toISOString(),
+      };
+
+      installArtifact(manifest.artifactDigest, environments.hmg, {
+        environment: 'HMG',
+        ...originBuild,
       });
+      writeOriginBuild(originBuild);
+
       return json(response, 200, { deploymentId: 'hmg-' + manifest.candidateId + '-' + digestKey(manifest.artifactDigest).slice(-16) });
     }
 
@@ -271,14 +299,24 @@ const controlServer = createServer(async (request, response) => {
       }
 
       runGit(['fetch', 'origin', 'main']);
+      const originBuild = {
+        feature: 'Origin main',
+        version: mainSha.slice(0, 12),
+        build: 'origin-main-' + mainSha.slice(0, 12),
+        artifactDigest: undefined,
+        artifactCandidateId: undefined,
+        artifactIntegrationSha: undefined,
+        originMainSha: mainSha,
+        updatedAt: new Date().toISOString(),
+      };
+
       installGitRef(mainSha, environments.hmg, {
         environment: 'HMG',
-        feature: 'Main branch',
-        version: mainSha.slice(0, 12),
-        build: 'main',
+        ...originBuild,
         reset: true,
         resetAt: new Date().toISOString(),
       });
+      writeOriginBuild(originBuild);
 
       return json(response, 200, {
         deploymentId: 'hmg-reset-' + mainSha.slice(0, 12),
