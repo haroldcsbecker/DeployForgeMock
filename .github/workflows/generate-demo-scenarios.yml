@@ -1,0 +1,89 @@
+name: Generate DeployForge demo PR scenarios
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure bot identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create ready scenario
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          BRANCH="deployforge-demo/${RUN_ID}/ready"
+          git checkout -B "$BRANCH" origin/main
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("index.html")
+          text = path.read_text()
+          path.write_text(text.replace("Feature: loading…", "Feature: Bot-ready scenario"))
+          PY
+          git add index.html
+          git commit -m "feat: add bot ready scenario"
+          git push --set-upstream origin "$BRANCH"
+          gh pr create             --repo "${{ github.repository }}"             --base main             --head "$BRANCH"             --title "feat: bot ready scenario"             --body "DeployForge demo: one commit, passing CI. This PR is intended to be reviewed and approved by the QA user."
+
+      - name: Create CI failure scenario
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          BRANCH="deployforge-demo/${RUN_ID}/ci-failure"
+          git checkout -B "$BRANCH" origin/main
+          cat >> test/smoke.test.js <<'EOF'
+
+          test('intentional DeployForge CI failure scenario', () => {
+            throw new Error('Intentional CI failure for DeployForge demo');
+          });
+          EOF
+          git add test/smoke.test.js
+          git commit -m "test: add intentional ci failure scenario"
+          git push --set-upstream origin "$BRANCH"
+          gh pr create             --repo "${{ github.repository }}"             --base main             --head "$BRANCH"             --title "test: intentional CI failure"             --body "DeployForge demo: one commit with an intentional CI failure. This PR should remain ineligible until the failure is fixed."
+
+      - name: Create multiple-commit scenario
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          BRANCH="deployforge-demo/${RUN_ID}/multiple-commits"
+          git checkout -B "$BRANCH" origin/main
+
+          cat > demo-multiple-commit-1.md <<'EOF'
+          # Multiple-commit scenario
+
+          First commit in the scenario.
+          EOF
+          git add demo-multiple-commit-1.md
+          git commit -m "docs: start multiple commit scenario"
+
+          cat > demo-multiple-commit-2.md <<'EOF'
+          # Multiple-commit scenario
+
+          Second commit in the scenario.
+          EOF
+          git add demo-multiple-commit-2.md
+          git commit -m "docs: finish multiple commit scenario"
+
+          git push --set-upstream origin "$BRANCH"
+          gh pr create             --repo "${{ github.repository }}"             --base main             --head "$BRANCH"             --title "docs: multiple commit scenario"             --body "DeployForge demo: two commits with passing CI. This PR should remain ineligible because the batch rule requires exactly one commit."
