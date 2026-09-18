@@ -1,6 +1,9 @@
 name: DeployForge Baseline Package
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       source_sha:
@@ -21,6 +24,7 @@ run-name: Baseline package ${{ inputs.source_sha || 'main' }}
 
 jobs:
   package:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[baseline]')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
