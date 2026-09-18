@@ -14,3 +14,8 @@ test("mock interface exposes deploy metadata", () => {
   assert.match(html, /feature/);
   assert.match(html, /build/);
 });
+
+
+test('intentional ci failure scenario', () => {
+  throw new Error('Intentional CI failure for DeployForge demo');
+});
