@@ -26,6 +26,7 @@ const digestKey = (digest) => digest.replace(/[^a-zA-Z0-9._-]/g, '_');
 const artifactDir = (digest) => join(ARTIFACT_ROOT, digestKey(digest));
 const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact.json');
 const originBuildPath = join(ROOT, 'origin-build.json');
+const stablePackagePath = join(ROOT, 'stable-package.json');
 
 const readOriginBuild = () => {
   if (!existsSync(originBuildPath)) return undefined;
@@ -336,6 +337,37 @@ const controlServer = createServer(async (request, response) => {
       const body = await parseBody(request);
       const healthy = existsSync(join(environments.hmg.root, 'deployforge-runtime.json'));
       return json(response, healthy ? 200 : 409, { ok: healthy, deploymentId: String(body.deploymentId ?? ''), healthy });
+    }
+
+    if (request.method === 'POST' && request.url === '/package/stable') {
+      const body = await parseBody(request);
+      const packageName = String(body.packageName ?? '');
+      const stableTag = String(body.stableTag ?? 'stable');
+      const version = String(body.version ?? '');
+      const releaseId = String(body.releaseId ?? '');
+      const candidateId = String(body.candidateId ?? '');
+      const artifactDigest = String(body.artifactDigest ?? '');
+
+      if (!packageName || !releaseId || !candidateId || !artifactDigest || !existsSync(manifestPath(artifactDigest))) {
+        return json(response, 400, { error: 'packageName, releaseId, candidateId and an existing artifactDigest are required' });
+      }
+
+      const stablePackage = {
+        packageName,
+        stableTag,
+        version,
+        releaseId,
+        candidateId,
+        artifactDigest,
+        updatedAt: new Date().toISOString(),
+      };
+
+      writeFileSync(stablePackagePath, JSON.stringify(stablePackage, null, 2) + '\n', 'utf8');
+
+      return json(response, 200, {
+        ok: true,
+        stablePackage,
+      });
     }
 
     if (request.method === 'POST' && request.url === '/deploy/prod') {
