@@ -10,6 +10,7 @@ const ENV_ROOT = join(ROOT, 'environments');
 const ARTIFACT_ROOT = join(ROOT, 'artifacts');
 const REPO = process.env.DEPLOYFORGE_MOCK_PROJECT_PATH ? resolve(process.env.DEPLOYFORGE_MOCK_PROJECT_PATH) : ROOT;
 const API_PORT = Number(process.env.DEPLOYFORGE_MOCK_CONTROL_PORT ?? 8090);
+const BASE_BRANCH = process.env.DEPLOYFORGE_MOCK_BASE_BRANCH ?? 'main';
 
 const environments = {
   dev: { port: 8081, root: join(ENV_ROOT, 'dev', 'current') },
@@ -107,7 +108,7 @@ const syncDevProject = () => {
   }
 
   const worktreeSha = runGit(['rev-parse', 'HEAD']);
-  const mainSha = runGit(['rev-parse', 'origin/main']);
+  const mainSha = runGit(['rev-parse', 'origin/' + BASE_BRANCH]);
   const originBuild = resolveOriginBuild();
 
   writeRuntimeMetadata(destination, {
@@ -307,7 +308,7 @@ const controlServer = createServer(async (request, response) => {
         return json(response, 400, { error: 'mainSha is required' });
       }
 
-      runGit(['fetch', 'origin', 'main']);
+      runGit(['fetch', 'origin', BASE_BRANCH]);
       const originBuild = {
         feature: 'Origin main',
         version: mainSha.slice(0, 12),
@@ -435,7 +436,7 @@ const staticServer = (environment, port) => createServer((request, response) => 
 });
 
 ensureDirs();
-runGit(['fetch', 'origin', 'main']);
+runGit(['fetch', 'origin', BASE_BRANCH]);
 
 syncDevProject();
 startDevSync();
@@ -443,11 +444,11 @@ startDevSync();
 for (const [name, environment] of Object.entries(environments)) {
   if (name !== 'dev' && !existsSync(join(environment.root, 'index.html'))) {
     clearDirectory(environment.root);
-    archiveRef('origin/main', environment.root);
+    archiveRef('origin/' + BASE_BRANCH, environment.root);
     writeRuntimeMetadata(environment.root, {
       environment: name.toUpperCase(),
       feature: name === 'hmg' ? 'Main branch' : 'Last production baseline',
-      version: runGit(['rev-parse', 'origin/main']).slice(0, 12),
+      version: runGit(['rev-parse', 'origin/' + BASE_BRANCH]).slice(0, 12),
       build: 'main',
     });
   }
