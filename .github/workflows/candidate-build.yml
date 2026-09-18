@@ -19,6 +19,10 @@ on:
         description: Comma-separated frozen PR numbers
         required: true
         type: string
+      pr_head_shas:
+        description: JSON object of frozen PR IDs to exact head SHAs
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -48,11 +52,18 @@ jobs:
         id: compose
         env:
           PR_NUMBERS: ${{ inputs.pr_numbers }}
+        PR_HEAD_SHAS: ${{ inputs.pr_head_shas }}
         run: |
           set -euo pipefail
           IFS=',' read -ra NUMBERS <<< "$PR_NUMBERS"
           for number in "${NUMBERS[@]}"; do
             git fetch origin "refs/pull/${number}/head" --quiet
+            ACTUAL_SHA="$(git rev-parse FETCH_HEAD)"
+            EXPECTED_SHA="$(node -e 'const heads=JSON.parse(process.env.PR_HEAD_SHAS); const n=process.argv[1]; const value=heads["pr-"+n]; if(!value) process.exit(2); process.stdout.write(value)' "$number")"
+            if [[ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then
+              echo "PR #${number} changed from ${EXPECTED_SHA} to ${ACTUAL_SHA}"
+              exit 1
+            fi
             git merge --no-ff --no-edit FETCH_HEAD
           done
           echo "integration_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -112,7 +123,7 @@ jobs:
             "artifact_digest=${DIGEST}" > candidate-notes.txt
 
           gh release create "candidate-${CANDIDATE_ID}" \
-            --target main \
+            --target "$INTEGRATION_SHA" \
             --title "Candidate ${CANDIDATE_ID}" \
             --notes-file candidate-notes.txt \
             || gh release edit "candidate-${CANDIDATE_ID}" \
