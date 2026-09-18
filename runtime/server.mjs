@@ -114,9 +114,6 @@ const syncDevProject = () => {
     feature: originBuild?.feature ?? 'Origin main',
     version: originBuild?.version ?? originBuild?.integrationSha ?? mainSha,
     build: originBuild?.build ?? originBuild?.candidateId ?? 'origin-main',
-    artifactDigest: originBuild?.artifactDigest,
-    artifactCandidateId: originBuild?.artifactCandidateId ?? originBuild?.candidateId,
-    artifactIntegrationSha: originBuild?.artifactIntegrationSha ?? originBuild?.integrationSha,
     sourceMainSha: mainSha,
     worktreeSha,
     source: 'origin-build + local worktree',
@@ -348,11 +345,15 @@ const controlServer = createServer(async (request, response) => {
       }
 
       const manifest = JSON.parse(readFileSync(manifestPath(body.artifactDigest), 'utf8'));
+      const releaseBuild = body.rollbackOfReleaseId
+        ? 'rollback-' + String(body.releaseId).replace(/^release-/, '')
+        : String(body.releaseId);
+
       installArtifact(body.artifactDigest, environments.prod, {
         environment: 'PROD',
-        feature: body.rollbackOfReleaseId ? 'Rollback ' + body.releaseId : 'Release ' + body.releaseId,
+        feature: body.rollbackOfReleaseId ? 'Rollback ' + releaseBuild : 'Release ' + releaseBuild,
         version: manifest.integrationSha.slice(0, 12),
-        build: body.rollbackOfReleaseId ? 'rollback-' + body.rollbackOfReleaseId : body.releaseId,
+        build: releaseBuild,
         artifactDigest: body.artifactDigest,
       });
       return json(response, 200, { deploymentId: 'prod-' + body.releaseId + '-' + digestKey(body.artifactDigest).slice(-16) });
