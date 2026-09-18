@@ -81,7 +81,18 @@ const findLatestArtifact = () => {
   return latest;
 };
 
-const resolveOriginBuild = () => readOriginBuild() ?? findLatestArtifact();
+const readHmgRuntimeMetadata = () => {
+  const path = join(environments.hmg.root, 'deployforge-runtime.json');
+  if (!existsSync(path)) return undefined;
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    return value && typeof value === 'object' ? value : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveOriginBuild = () => readOriginBuild() ?? readHmgRuntimeMetadata() ?? findLatestArtifact();
 
 const DEV_EXCLUDED = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees']);
 
