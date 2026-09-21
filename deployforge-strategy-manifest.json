@@ -11,7 +11,15 @@
       "defaultImplementation": "legacy",
       "dependsOn": [],
       "lifecycle": false,
-      "rollback": false
+      "rollback": false,
+      "projectRepository": "https://github.com/haroldcsbecker/DeployForgeMock",
+      "sourcePath": "runtime/strategies/fraud-strategy.mjs",
+      "description": "Controls the fraud evaluation implementation used by the runtime.",
+      "rollbackDescription": "Switching or rolling back the artifact restores the implementation selected by the target artifact. No external compensation handler is required for the fraud strategy.",
+      "implementationDescriptions": {
+        "legacy": "Legacy fraud evaluation path.",
+        "rule-based": "Rule-based fraud evaluation path."
+      }
     },
     {
       "id": "payment-processor",
@@ -25,7 +33,15 @@
         "fraud-strategy"
       ],
       "lifecycle": true,
-      "rollback": true
+      "rollback": true,
+      "projectRepository": "https://github.com/haroldcsbecker/DeployForgeMock",
+      "sourcePath": "runtime/strategies/payment-processor.mjs",
+      "description": "Selects the payment processor implementation used by checkout.",
+      "rollbackDescription": "The selected payment implementation can run its compensation handler before an artifact rollback. The target artifact then determines the available implementations.",
+      "implementationDescriptions": {
+        "legacy": "Legacy payment processor implementation.",
+        "new": "New payment processor implementation with the current fraud strategy dependency."
+      }
     }
   ]
 }
