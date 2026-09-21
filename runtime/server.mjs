@@ -407,6 +407,11 @@ const controlServer = createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/deploy/base') {
       const body = await parseBody(request);
       const repository = String(body.repository ?? REPO);
+      const target = String(body.environment ?? '');
+      if (!['dev', 'hmg', 'prod', 'all'].includes(target)) {
+        return json(response, 400, { error: 'environment must be dev, hmg, prod or all' });
+      }
+
       runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
       const mainSha = String(body.mainSha ?? runGit(['rev-parse', 'origin/' + BASE_BRANCH]));
       runGit(['cat-file', '-e', mainSha + '^{commit}']);
@@ -445,7 +450,11 @@ const controlServer = createServer(async (request, response) => {
         bootstrappedAt: new Date().toISOString(),
       };
 
-      for (const [name, environment] of Object.entries(environments)) {
+      const targets = target === 'all'
+        ? Object.entries(environments)
+        : [[target, environments[target]]];
+
+      for (const [name, environment] of targets) {
         installArtifact(artifactDigest, environment, {
           environment: name.toUpperCase(),
           feature: 'Base main',
@@ -458,16 +467,18 @@ const controlServer = createServer(async (request, response) => {
         });
       }
 
-      writeOriginBuild({
-        feature: 'Base main',
-        version: metadata.version,
-        build: metadata.build,
-        artifactDigest,
-        artifactCandidateId: undefined,
-        artifactIntegrationSha: mainSha,
-        originMainSha: mainSha,
-        updatedAt: metadata.bootstrappedAt,
-      });
+      if (target === 'dev' || target === 'all') {
+        writeOriginBuild({
+          feature: 'Base main',
+          version: metadata.version,
+          build: metadata.build,
+          artifactDigest,
+          artifactCandidateId: undefined,
+          artifactIntegrationSha: mainSha,
+          originMainSha: mainSha,
+          updatedAt: metadata.bootstrappedAt,
+        });
+      }
 
       return json(response, 200, {
         ok: true,
@@ -476,11 +487,10 @@ const controlServer = createServer(async (request, response) => {
         artifactRepository: repository,
         version: metadata.version,
         mainSha,
-        environments: {
-          dev: { port: environments.dev.port, artifactDigest },
-          hmg: { port: environments.hmg.port, artifactDigest },
-          prod: { port: environments.prod.port, artifactDigest },
-        },
+        target,
+        environments: Object.fromEntries(
+          targets.map(([name]) => [name, { port: environments[name].port, artifactDigest }]),
+        ),
       });
     }
 
@@ -572,6 +582,8 @@ const controlServer = createServer(async (request, response) => {
 
     if (request.method === 'POST' && request.url === '/deploy/hmg') {
       const body = await parseBody(request);
+      const preservedDevDigest = activeArtifactDigest('dev');
+      const preservedProdDigest = activeArtifactDigest('prod');
       const manifest = createCandidateArtifact(body);
       const originBuild = {
         feature: 'Candidate ' + manifest.candidateId,
@@ -588,9 +600,22 @@ const controlServer = createServer(async (request, response) => {
         environment: 'HMG',
         ...originBuild,
       });
+
+      const currentDevDigest = activeArtifactDigest('dev');
+      const currentProdDigest = activeArtifactDigest('prod');
+      if (currentDevDigest !== preservedDevDigest || currentProdDigest !== preservedProdDigest) {
+        throw new Error('HMG deployment violated environment isolation: DEV/PROD changed unexpectedly');
+      }
+
       writeOriginBuild(originBuild);
 
-      return json(response, 200, { deploymentId: 'hmg-' + manifest.candidateId + '-' + digestKey(manifest.artifactDigest).slice(-16) });
+      return json(response, 200, {
+        deploymentId: 'hmg-' + manifest.candidateId + '-' + digestKey(manifest.artifactDigest).slice(-16),
+        preservedEnvironments: {
+          dev: currentDevDigest,
+          prod: currentProdDigest,
+        },
+      });
     }
 
     if (request.method === 'POST' && request.url === '/deploy/hmg/reset') {
@@ -779,6 +804,29 @@ const controlServer = createServer(async (request, response) => {
       });
     }
 
+    if (request.method === 'GET' && request.url === '/deployforge-strategy-runtime.json') {
+      const environmentName = runtimeEnvironmentName(environment);
+      const artifactDigest = activeArtifactDigest(environmentName);
+      if (!artifactDigest) {
+        return json(response, 404, { error: 'No immutable artifact is active in this environment' });
+      }
+
+      const manifest = readArtifactStrategyManifest(artifactDigest);
+      const persisted = readStrategySelections(environmentName);
+      const strategies = manifest.strategies.map((strategy) => ({
+        id: strategy.id,
+        selectedImplementation: persisted[strategy.id] ?? strategy.defaultImplementation,
+        availableImplementationIds: strategy.implementations,
+        defaultImplementation: strategy.defaultImplementation,
+      }));
+
+      return json(response, 200, {
+        environment: environmentName,
+        artifactDigest,
+        strategies,
+      });
+    }
+
     if (request.method === 'POST' && request.url === '/strategies/manifest') {
       const body = await parseBody(request);
       const environment = body.environment === 'hmg' ? 'hmg' : body.environment === 'production' ? 'prod' : undefined;
@@ -908,6 +956,8 @@ const controlServer = createServer(async (request, response) => {
         return json(response, 409, { error: 'Artifact has not been materialized locally' });
       }
 
+      const preservedDevDigest = activeArtifactDigest('dev');
+      const preservedHmgDigest = activeArtifactDigest('hmg');
       const manifest = JSON.parse(readFileSync(manifestPath(body.artifactDigest), 'utf8'));
       const releaseBuild = body.rollbackOfReleaseId
         ? 'rollback-' + String(body.releaseId).replace(/^release-/, '')
@@ -920,8 +970,23 @@ const controlServer = createServer(async (request, response) => {
         build: releaseBuild,
         artifactDigest: body.artifactDigest,
       });
-      return json(response, 200, { deploymentId: 'prod-' + body.releaseId + '-' + digestKey(body.artifactDigest).slice(-16) });
+
+      const currentDevDigest = activeArtifactDigest('dev');
+      const currentHmgDigest = activeArtifactDigest('hmg');
+      if (currentDevDigest !== preservedDevDigest || currentHmgDigest !== preservedHmgDigest) {
+        throw new Error('Production deployment violated environment isolation: DEV/HMG changed unexpectedly');
+      }
+
+      return json(response, 200, {
+        deploymentId: 'prod-' + body.releaseId + '-' + digestKey(body.artifactDigest).slice(-16),
+        preservedEnvironments: {
+          dev: currentDevDigest,
+          hmg: currentHmgDigest,
+        },
+      });
     }
+
+
 
     if (request.method === 'POST' && request.url === '/prod/health') {
       const body = await parseBody(request);
@@ -938,6 +1003,32 @@ const controlServer = createServer(async (request, response) => {
 const staticServer = (environment, port) => createServer((request, response) => {
   try {
     const pathname = decodeURIComponent((request.url ?? '/').split('?')[0]);
+
+    if (request.method === 'GET' && pathname === '/deployforge-strategy-runtime.json') {
+      const environmentName = runtimeEnvironmentName(environment);
+      const artifactDigest = activeArtifactDigest(environmentName);
+      if (!artifactDigest) {
+        json(response, 404, { error: 'No immutable artifact is active in this environment' });
+        return;
+      }
+
+      const manifest = readArtifactStrategyManifest(artifactDigest);
+      const persisted = readStrategySelections(environmentName);
+      const strategies = manifest.strategies.map((strategy) => ({
+        id: strategy.id,
+        selectedImplementation: persisted[strategy.id] ?? strategy.defaultImplementation,
+        availableImplementationIds: strategy.implementations,
+        defaultImplementation: strategy.defaultImplementation,
+      }));
+
+      json(response, 200, {
+        environment: environmentName,
+        artifactDigest,
+        strategies,
+      });
+      return;
+    }
+
     const requested = pathname === '/' ? '/index.html' : pathname;
     const file = resolve(environment.root, '.' + normalize(requested));
     const relativePath = relative(environment.root, file);
@@ -976,11 +1067,17 @@ for (const [name, environment] of Object.entries(environments)) {
   if (name !== 'dev' && !existsSync(join(environment.root, 'index.html'))) {
     clearDirectory(environment.root);
     archiveRef('origin/' + BASE_BRANCH, environment.root);
+    const startupMainSha = runGit(['rev-parse', 'origin/' + BASE_BRANCH]);
+    const startupArtifactDigest = 'sha256:' + createHash('sha256')
+      .update(JSON.stringify({ type: 'base', repository: REPO, mainSha: startupMainSha }))
+      .digest('hex');
     writeRuntimeMetadata(environment.root, {
       environment: name.toUpperCase(),
       feature: name === 'hmg' ? 'Main branch' : 'Last production baseline',
-      version: runGit(['rev-parse', 'origin/' + BASE_BRANCH]).slice(0, 12),
+      version: startupMainSha.slice(0, 12),
       build: 'main',
+      artifactDigest: startupArtifactDigest,
+      sourceMainSha: startupMainSha,
     });
   }
 }
