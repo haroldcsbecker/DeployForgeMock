@@ -1,0 +1,98 @@
+name: DeployForge Test Reset
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  reset:
+    if: contains(github.event.head_commit.message, '[deployforge-test-reset]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Close all open PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr list --repo "${GITHUB_REPOSITORY}" --state open --limit 100 --json number --jq '.[].number' |
+            while read -r number; do
+              [ -z "${number}" ] || gh pr close "${number}" --comment "Closed by DeployForge test reset."
+            done
+
+      - name: Delete all GitHub releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release list --repo "${GITHUB_REPOSITORY}" --limit 100 --json tagName --jq '.[].tagName' |
+            while read -r tag; do
+              [ -z "${tag}" ] || gh release delete "${tag}" --yes --cleanup-tag
+            done
+
+      - name: Delete all repository tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --tags origin --quiet
+          git tag -l |
+            while read -r tag; do
+              [ -z "${tag}" ] || git push origin --delete "refs/tags/${tag}" || true
+            done
+
+      - name: Delete all container package versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PACKAGE=deployforgemock
+          gh api --paginate "/user/packages/container/${PACKAGE}/versions?per_page=100" --jq '.[].id' |
+            while read -r version_id; do
+              [ -z "${version_id}" ] || gh api --method DELETE "/user/packages/container/${PACKAGE}/versions/${version_id}"
+            done
+          gh api --method DELETE "/user/packages/container/${PACKAGE}" || true
+
+      - name: Remove reset workflow from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          FILE_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.github/workflows/test-reset.yml?ref=main" --jq '.sha')"
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/contents/.github/workflows/test-reset.yml"             -f message="Remove temporary test reset workflow"             -f sha="${FILE_SHA}"             -f branch="main"
+
+      - name: Rebuild from the clean main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          git reset --hard origin/main
+
+          SHORT_SHA="$(git rev-parse --short=12 HEAD)"
+          IMAGE="ghcr.io/${OWNER,,}/deployforgemock"
+          BASE_TAG="test-base-${SHORT_SHA}"
+
+          docker login ghcr.io -u "${{ github.actor }}" -p "${{ github.token }}"
+          docker build -t "${IMAGE}:${BASE_TAG}" -t "${IMAGE}:base" .
+          docker push "${IMAGE}:${BASE_TAG}"
+          docker push "${IMAGE}:base"
+
+          gh release create "${BASE_TAG}"             --repo "${GITHUB_REPOSITORY}"             --target main             --title "DeployForge test base ${SHORT_SHA}"             --notes "Clean immutable base for DeployForge integration testing.
+
+source_sha=$(git rev-parse HEAD)
+artifact_registry=ghcr.io
+artifact_repository=${{ github.repository_owner }}/deployforgemock
+base_tag=${BASE_TAG}"
