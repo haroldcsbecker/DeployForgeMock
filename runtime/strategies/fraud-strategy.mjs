@@ -11,3 +11,10 @@ export function FraudRules() {
     evaluate: () => true,
   };
 }
+
+export function FraudMl() {
+  return {
+    implementationId: 'ml',
+    evaluate: () => true,
+  };
+}
