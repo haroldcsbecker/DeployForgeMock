@@ -42,3 +42,33 @@ export class CanaryPaymentProcessor {
     };
   }
 }
+
+export class OptimizedPaymentProcessor {
+  constructor({ fraudStrategy, logger }) {
+    this.fraudStrategy = fraudStrategy;
+    this.logger = logger;
+  }
+
+  process() {
+    this.logger.events.push('payment:optimized');
+    return {
+      implementationId: 'optimized',
+      fraudImplementationId: this.fraudStrategy.implementationId,
+    };
+  }
+}
+
+export class AsyncPaymentProcessor {
+  constructor({ fraudStrategy, logger }) {
+    this.fraudStrategy = fraudStrategy;
+    this.logger = logger;
+  }
+
+  process() {
+    this.logger.events.push('payment:async');
+    return {
+      implementationId: 'async',
+      fraudImplementationId: this.fraudStrategy.implementationId,
+    };
+  }
+}
