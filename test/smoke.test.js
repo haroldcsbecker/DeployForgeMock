@@ -14,3 +14,8 @@ test("mock interface exposes deploy metadata", () => {
   assert.match(html, /feature/);
   assert.match(html, /build/);
 });
+
+
+test("DeployForge scenario 12 intentional pipeline failure", () => {
+  throw new Error("Intentional DeployForge test pipeline failure");
+});
