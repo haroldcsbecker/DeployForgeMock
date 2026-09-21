@@ -236,6 +236,82 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
   }
 };
 
+const createSelectiveReworkArtifact = ({
+  sourceReleaseId,
+  repository,
+  baseMainSha,
+  prNumbers,
+  prHeadShas,
+  excludedPrIds = [],
+}) => {
+  const included = prNumbers.filter((number) => !excludedPrIds.includes('pr-' + number));
+  if (!included.length) throw new Error('Selective rework must retain at least one PR');
+  const destination = artifactDir('pending');
+  void destination;
+
+  runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
+  runGit(['cat-file', '-e', baseMainSha + '^{commit}']);
+
+  const rebuildId = randomUUID();
+  const artifactDigest = 'sha256:' + createHash('sha256')
+    .update(JSON.stringify({
+      type: 'selective-rework',
+      sourceReleaseId,
+      repository,
+      baseMainSha,
+      prNumbers: included,
+      prHeadShas,
+      rebuildId,
+    }))
+    .digest('hex');
+  const artifactDestination = artifactDir(artifactDigest);
+  const existingManifest = manifestPath(artifactDigest);
+  if (existsSync(existingManifest)) return JSON.parse(readFileSync(existingManifest, 'utf8'));
+
+  const temp = join(ROOT, '.runtime-worktrees', randomUUID());
+  mkdirSync(join(ROOT, '.runtime-worktrees'), { recursive: true });
+
+  try {
+    runGit(['worktree', 'add', '--detach', temp, baseMainSha]);
+
+    for (const number of included) {
+      const prId = 'pr-' + number;
+      const expectedSha = prHeadShas[prId];
+      if (!expectedSha) throw new Error('Missing frozen head SHA for PR #' + number);
+      const ref = 'refs/deployforge-demo/pr-' + number;
+      runGit(['fetch', 'origin', '+refs/pull/' + number + '/head:' + ref]);
+      const actualSha = runGit(['rev-parse', ref]);
+      if (actualSha !== expectedSha) {
+        throw new Error('PR #' + number + ' changed from ' + expectedSha + ' to ' + actualSha);
+      }
+      execFileSync('git', ['-C', temp, 'merge', '--no-ff', '--no-edit', ref], { stdio: 'pipe' });
+    }
+
+    const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
+    clearDirectory(artifactDestination);
+    archiveRef(integrationSha, artifactDestination);
+    const manifest = {
+      candidateId: undefined,
+      batchId: undefined,
+      sourceReleaseId,
+      repository,
+      baseMainSha,
+      prNumbers: included,
+      prHeadShas,
+      excludedPrIds,
+      integrationSha,
+      artifactDigest,
+      immutable: true,
+      createdAt: new Date().toISOString(),
+    };
+    writeFileSync(existingManifest, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+    return manifest;
+  } finally {
+    try { runGit(['worktree', 'remove', '--force', temp]); } catch {}
+    rmSync(temp, { recursive: true, force: true });
+  }
+};
+
 const json = (response, status, body) => {
   const payload = JSON.stringify(body);
   response.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
@@ -402,6 +478,48 @@ const controlServer = createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/deploy/hmg/remove') {
       clearDirectory(environments.hmg.root);
       return json(response, 200, { ok: true, removed: true });
+    }
+
+    if (request.method === 'POST' && request.url === '/artifact/rebuild-selective') {
+      const body = await parseBody(request);
+      const sourceReleaseId = String(body.sourceReleaseId ?? '');
+      const repository = String(body.repository ?? REPO);
+      const baseMainSha = String(body.baseMainSha ?? '');
+      const prNumbers = Array.isArray(body.prNumbers) ? body.prNumbers.map(Number).filter(Number.isInteger) : [];
+      const prHeadShas = body.prHeadShas && typeof body.prHeadShas === 'object' ? body.prHeadShas : {};
+      const excludedPrIds = Array.isArray(body.excludedPrIds) ? body.excludedPrIds.map(String) : [];
+      if (!sourceReleaseId || !repository || !baseMainSha || !prNumbers.length) {
+        return json(response, 400, { error: 'sourceReleaseId, repository, baseMainSha and prNumbers are required' });
+      }
+
+      const manifest = createSelectiveReworkArtifact({
+        sourceReleaseId,
+        repository,
+        baseMainSha,
+        prNumbers,
+        prHeadShas,
+        excludedPrIds,
+      });
+
+      installArtifact(manifest.artifactDigest, environments.hmg, {
+        environment: 'HMG',
+        feature: 'Selective rework ' + sourceReleaseId,
+        version: manifest.integrationSha.slice(0, 12),
+        build: 'selective-rework-' + sourceReleaseId,
+        artifactDigest: manifest.artifactDigest,
+        artifactReleaseId: sourceReleaseId,
+        excludedPrIds,
+        rebuiltAt: new Date().toISOString(),
+      });
+
+      return json(response, 200, {
+        artifactDigest: manifest.artifactDigest,
+        artifactRegistry: 'local',
+        artifactRepository: repository,
+        version: manifest.integrationSha.slice(0, 12) + '-selective',
+        integrationSha: manifest.integrationSha,
+        excludedPrIds,
+      });
     }
 
     if (request.method === 'POST' && request.url === '/artifact/rebuild-historical') {
