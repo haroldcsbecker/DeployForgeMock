@@ -66,10 +66,15 @@ export class StrategyBuilder {
     return this;
   }
 
-  definition(id, registration = id) {
+  definition(id, registration = id, metadata = {}) {
     return {
       id,
       registration,
+      projectRepository: metadata.projectRepository ?? '',
+      sourcePath: metadata.sourcePath ?? '',
+      description: metadata.description ?? '',
+      rollbackDescription: metadata.rollbackDescription ?? '',
+      implementationDescriptions: { ...(metadata.implementationDescriptions ?? {}) },
       implementations: this.implementations.map(({ id: implementationId, implementation }) => ({
         id: implementationId,
         implementation,
@@ -157,7 +162,10 @@ export class DeployStrategy {
   register(strategyId, builder, options = {}) {
     if (!(builder instanceof StrategyBuilder)) throw new Error('DeployStrategy.register expects a StrategyBuilder');
     if (this.definitions.has(strategyId)) throw new Error('Strategy "' + strategyId + '" is already registered');
-    this.definitions.set(strategyId, builder.definition(strategyId, options.registration ?? strategyId));
+    this.definitions.set(
+      strategyId,
+      builder.definition(strategyId, options.registration ?? strategyId, options),
+    );
     return this;
   }
 
@@ -178,6 +186,11 @@ export class DeployStrategy {
         dependsOn: [...definition.dependsOn],
         lifecycle: Object.keys(definition.lifecycle ?? {}).length > 0,
         rollback: Object.keys(definition.rollback ?? {}).length > 0,
+        projectRepository: definition.projectRepository,
+        sourcePath: definition.sourcePath,
+        description: definition.description,
+        rollbackDescription: definition.rollbackDescription,
+        implementationDescriptions: { ...(definition.implementationDescriptions ?? {}) },
       })),
     };
   }
