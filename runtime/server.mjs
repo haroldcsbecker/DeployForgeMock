@@ -693,6 +693,7 @@ const controlServer = createServer(async (request, response) => {
         return json(response, 409, { error: 'Artifact has not been materialized locally' });
       }
       const manifest = JSON.parse(readFileSync(manifestPath(artifactDigest), 'utf8'));
+      const restoredAt = new Date().toISOString();
       installArtifact(artifactDigest, environments.hmg, {
         environment: 'HMG',
         feature: 'Restore release ' + releaseId,
@@ -701,8 +702,22 @@ const controlServer = createServer(async (request, response) => {
         artifactDigest,
         artifactReleaseId: releaseId,
         ...(releaseId === 'base-main' ? { base: true, restartStrategies: true } : {}),
-        restoredAt: new Date().toISOString(),
+        restoredAt,
       });
+
+      if (releaseId === 'base-main') {
+        writeOriginBuild({
+          feature: 'Base main',
+          version: manifest.integrationSha.slice(0, 12),
+          build: 'base-main-' + manifest.integrationSha.slice(0, 12),
+          artifactDigest,
+          artifactCandidateId: undefined,
+          artifactIntegrationSha: manifest.integrationSha,
+          originMainSha: manifest.integrationSha,
+          updatedAt: restoredAt,
+        });
+      }
+
       return json(response, 200, {
         deploymentId: 'hmg-restore-' + releaseId + '-' + digestKey(artifactDigest).slice(-12),
         artifactDigest,
@@ -982,6 +997,10 @@ const controlServer = createServer(async (request, response) => {
       const currentHmgDigest = activeArtifactDigest('hmg');
       if (currentDevDigest !== preservedDevDigest || currentHmgDigest !== preservedHmgDigest) {
         throw new Error('Production deployment violated environment isolation: DEV/HMG changed unexpectedly');
+      }
+
+      if (body.releaseId === 'base-main') {
+        rmSync(stablePackagePath, { force: true });
       }
 
       return json(response, 200, {
