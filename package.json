@@ -7,6 +7,10 @@
     "test": "node --test",
     "demo:start": "node runtime/server.mjs",
     "demo:check": "node --check runtime/server.mjs",
+    "strategy:validate": "node runtime/validate-strategy-manifest.mjs",
     "demo:bootstrap-base": "curl -fsS -X POST http://127.0.0.1:8090/deploy/base"
+  },
+  "dependencies": {
+    "awilix": "13.0.5"
   }
 }

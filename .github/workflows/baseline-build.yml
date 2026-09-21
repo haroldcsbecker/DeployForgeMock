@@ -33,6 +33,9 @@ jobs:
           ref: ${{ inputs.source_sha || 'main' }}
           fetch-depth: 0
 
+      - name: Validate DeployStrategy
+        run: node runtime/validate-strategy-manifest.mjs
+
       - name: Resolve source
         id: source
         run: |
@@ -94,16 +97,5 @@ jobs:
         run: |
           set -euo pipefail
           TAG="baseline-${SHORT_SHA}"
-          printf '%s\n' \
-            "source_sha=${SOURCE_SHA}" \
-            "artifact_registry=ghcr.io" \
-            "artifact_repository=${IMAGE#ghcr.io/}" \
-            "artifact_digest=${DIGEST}" \
-            "stable_tag=${STABLE_TAG}" > baseline-notes.txt
-          gh release create "${TAG}" \
-            --target "${SOURCE_SHA}" \
-            --title "DeployForge baseline ${SHORT_SHA}" \
-            --notes-file baseline-notes.txt \
-            || gh release edit "${TAG}" \
-            --title "DeployForge baseline ${SHORT_SHA}" \
-            --notes-file baseline-notes.txt
+          printf '%s\n'             "source_sha=${SOURCE_SHA}"             "artifact_registry=ghcr.io"             "artifact_repository=${IMAGE#ghcr.io/}"             "artifact_digest=${DIGEST}"             "stable_tag=${STABLE_TAG}" > baseline-notes.txt
+          gh release create "${TAG}"             --target "${SOURCE_SHA}"             --title "DeployForge baseline ${SHORT_SHA}"             --notes-file baseline-notes.txt             || gh release edit "${TAG}"             --title "DeployForge baseline ${SHORT_SHA}"             --notes-file baseline-notes.txt

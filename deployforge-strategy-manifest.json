@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "strategies": [
+    {
+      "id": "fraud-strategy",
+      "registration": "fraudStrategy",
+      "implementations": [
+        "legacy",
+        "rule-based"
+      ],
+      "defaultImplementation": "legacy",
+      "dependsOn": [],
+      "lifecycle": false,
+      "rollback": false
+    },
+    {
+      "id": "payment-processor",
+      "registration": "paymentProcessor",
+      "implementations": [
+        "legacy",
+        "new"
+      ],
+      "defaultImplementation": "legacy",
+      "dependsOn": [
+        "fraud-strategy"
+      ],
+      "lifecycle": true,
+      "rollback": true
+    }
+  ]
+}

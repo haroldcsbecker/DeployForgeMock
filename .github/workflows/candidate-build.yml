@@ -42,6 +42,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
+      - name: Validate DeployStrategy
+        run: node runtime/validate-strategy-manifest.mjs
+
       - name: Configure git
         run: |
           set -euo pipefail
@@ -115,17 +118,6 @@ jobs:
         run: |
           set -euo pipefail
           ARTIFACT_REPOSITORY="${REPOSITORY#ghcr.io/}"
-          printf '%s\n' \
-            "candidate_id=${CANDIDATE_ID}" \
-            "integration_sha=${INTEGRATION_SHA}" \
-            "artifact_registry=ghcr.io" \
-            "artifact_repository=${ARTIFACT_REPOSITORY}" \
-            "artifact_digest=${DIGEST}" > candidate-notes.txt
+          printf '%s\n'             "candidate_id=${CANDIDATE_ID}"             "integration_sha=${INTEGRATION_SHA}"             "artifact_registry=ghcr.io"             "artifact_repository=${ARTIFACT_REPOSITORY}"             "artifact_digest=${DIGEST}" > candidate-notes.txt
 
-          gh release create "candidate-${CANDIDATE_ID}" \
-            --target "$INTEGRATION_SHA" \
-            --title "Candidate ${CANDIDATE_ID}" \
-            --notes-file candidate-notes.txt \
-            || gh release edit "candidate-${CANDIDATE_ID}" \
-            --title "Candidate ${CANDIDATE_ID}" \
-            --notes-file candidate-notes.txt
+          gh release create "candidate-${CANDIDATE_ID}"             --target "${INTEGRATION_SHA}"             --title "Candidate ${CANDIDATE_ID}"             --notes-file candidate-notes.txt             || gh release edit "candidate-${CANDIDATE_ID}"             --title "Candidate ${CANDIDATE_ID}"             --notes-file candidate-notes.txt
