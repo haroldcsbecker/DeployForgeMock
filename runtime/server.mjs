@@ -176,26 +176,25 @@ const resolveOriginBuild = () => readOriginBuild() ?? readHmgRuntimeMetadata() ?
 const DEV_EXCLUDED = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees']);
 
 const syncDevProject = () => {
-  const destination = environments.dev.root;
-  clearDirectory(destination);
+  // DEV always represents the latest remote main, never the local checkout.
+  // Fetch first because production/QA merges happen through GitHub and may not
+  // exist in the long-running local worktree yet.
+  runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
+  const mainRef = 'origin/' + BASE_BRANCH;
+  const mainSha = runGit(['rev-parse', mainRef]);
+  const current = readRuntimeMetadataFor('dev');
 
-  for (const entry of readdirSync(REPO, { withFileTypes: true })) {
-    if (DEV_EXCLUDED.has(entry.name)) continue;
-    cpSync(join(REPO, entry.name), join(destination, entry.name), { recursive: true });
+  if (current?.sourceMainSha === mainSha && existsSync(join(environments.dev.root, 'index.html'))) {
+    return;
   }
 
-  const worktreeSha = runGit(['rev-parse', 'HEAD']);
-  const mainSha = runGit(['rev-parse', 'origin/' + BASE_BRANCH]);
-  const originBuild = resolveOriginBuild();
-
-  writeRuntimeMetadata(destination, {
+  installGitRef(mainRef, environments.dev, {
     environment: 'DEV',
-    feature: originBuild?.feature ?? 'Origin main',
-    version: originBuild?.version ?? originBuild?.integrationSha ?? mainSha,
-    build: originBuild?.build ?? originBuild?.candidateId ?? 'origin-main',
+    feature: 'Main branch',
+    version: mainSha.slice(0, 12),
+    build: 'origin-main-' + mainSha.slice(0, 12),
     sourceMainSha: mainSha,
-    worktreeSha,
-    source: 'origin-build + local worktree',
+    source: 'origin/main',
     synchronizedAt: new Date().toISOString(),
   });
 };
