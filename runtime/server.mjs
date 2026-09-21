@@ -29,6 +29,7 @@ const artifactDir = (digest) => join(ARTIFACT_ROOT, digestKey(digest));
 const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact.json');
 const originBuildPath = join(ROOT, 'origin-build.json');
 const stablePackagePath = join(ROOT, 'stable-package.json');
+const dirtyPackageTagsPath = join(ROOT, 'dirty-package-tags.json');
 const strategyRuntimeCache = new Map();
 
 const runtimeEnvironmentName = (environment) =>
@@ -952,6 +953,52 @@ const controlServer = createServer(async (request, response) => {
       const body = await parseBody(request);
       const healthy = existsSync(join(environments.hmg.root, 'deployforge-runtime.json'));
       return json(response, healthy ? 200 : 409, { ok: healthy, deploymentId: String(body.deploymentId ?? ''), healthy });
+    }
+
+    if (request.method === 'POST' && request.url === '/package/dirty') {
+      const body = await parseBody(request);
+      const packageName = String(body.packageName ?? '');
+      const dirtyTag = String(body.stableTag ?? '');
+      const version = String(body.version ?? '');
+      const releaseId = String(body.releaseId ?? '');
+      const candidateId = String(body.candidateId ?? '');
+      const artifactDigest = String(body.artifactDigest ?? '');
+      const reason = String(body.reason ?? '');
+
+      if (
+        !packageName ||
+        !/^dirty-(qa|gmud)-[a-z0-9][a-z0-9._-]{0,110}$/i.test(dirtyTag) ||
+        !artifactDigest ||
+        !existsSync(manifestPath(artifactDigest)) ||
+        !reason
+      ) {
+        return json(response, 400, { error: 'packageName, dirty tag, artifactDigest, existing artifact and reason are required' });
+      }
+
+      let existing = [];
+      if (existsSync(dirtyPackageTagsPath)) {
+        try {
+          const value = JSON.parse(readFileSync(dirtyPackageTagsPath, 'utf8'));
+          if (Array.isArray(value)) existing = value;
+        } catch {}
+      }
+
+      const tagRecord = {
+        packageName,
+        tag: dirtyTag,
+        version,
+        releaseId,
+        candidateId,
+        artifactDigest,
+        reason,
+        updatedAt: new Date().toISOString(),
+      };
+
+      existing = existing.filter((item) => !(item && item.tag === dirtyTag));
+      existing.unshift(tagRecord);
+      writeFileSync(dirtyPackageTagsPath, JSON.stringify(existing, null, 2) + '\n', 'utf8');
+
+      return json(response, 200, { ok: true, dirtyPackageTag: tagRecord });
     }
 
     if (request.method === 'POST' && request.url === '/package/stable') {
