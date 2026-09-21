@@ -11,9 +11,9 @@ on:
         required: false
         type: string
       stable_tag:
-        description: Stable tag to update
+        description: Deprecated stable tag input; BASE is always published as base-main
         required: false
-        default: stable
+        default: base-main
         type: string
 
 permissions:
@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "image=ghcr.io/${OWNER,,}/deployforgemock" >> "$GITHUB_OUTPUT"
-          echo "tag=baseline-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tag=base-main" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -74,9 +74,6 @@ jobs:
           push: true
           tags: |
             ${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}
-            ${{ steps.image.outputs.image }}:dev
-            ${{ steps.image.outputs.image }}:hmg
-            ${{ steps.image.outputs.image }}:${{ inputs.stable_tag || 'stable' }}
 
       - name: Resolve digest
         id: digest
@@ -95,9 +92,9 @@ jobs:
           SHORT_SHA: ${{ steps.source.outputs.short_sha }}
           DIGEST: ${{ steps.digest.outputs.digest }}
           IMAGE: ${{ steps.image.outputs.image }}
-          STABLE_TAG: ${{ inputs.stable_tag || 'stable' }}
+          STABLE_TAG: base-main
         run: |
           set -euo pipefail
-          TAG="baseline-${SHORT_SHA}"
-          printf '%s\n'             "source_sha=${SOURCE_SHA}"             "artifact_registry=ghcr.io"             "artifact_repository=${IMAGE#ghcr.io/}"             "artifact_digest=${DIGEST}"             "stable_tag=${STABLE_TAG}" > baseline-notes.txt
-          gh release create "${TAG}"             --target "${SOURCE_SHA}"             --title "DeployForge baseline ${SHORT_SHA}"             --notes-file baseline-notes.txt             || gh release edit "${TAG}"             --title "DeployForge baseline ${SHORT_SHA}"             --notes-file baseline-notes.txt
+          TAG="base-main"
+          printf '%s\n'             "source_sha=${SOURCE_SHA}"             "artifact_registry=ghcr.io"             "artifact_repository=${IMAGE#ghcr.io/}"             "artifact_digest=${DIGEST}"             "base_tag=${STABLE_TAG}" > baseline-notes.txt
+          gh release create "${TAG}"             --target "${SOURCE_SHA}"             --title "DeployForge BASE — Fixed Main Baseline"             --notes-file baseline-notes.txt             || gh release edit "${TAG}"             --title "DeployForge BASE — Fixed Main Baseline"             --notes-file baseline-notes.txt
