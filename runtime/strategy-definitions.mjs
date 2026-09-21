@@ -1,6 +1,6 @@
 import { DeployStrategy } from './deploy-strategy.mjs';
 import { LegacyPaymentProcessor, NewPaymentProcessor } from './strategies/payment-processor.mjs';
-import { FraudLegacy, FraudRules } from './strategies/fraud-strategy.mjs';
+import { FraudLegacy, FraudMl, FraudRules } from './strategies/fraud-strategy.mjs';
 
 export function createDeployStrategy() {
   const strategy = new DeployStrategy();
@@ -11,6 +11,7 @@ export function createDeployStrategy() {
       .switchBetween(
         { id: 'legacy', implementation: FraudLegacy },
         { id: 'rule-based', implementation: FraudRules },
+        { id: 'ml', implementation: FraudMl },
       ),
     {
       registration: 'fraudStrategy',
@@ -21,6 +22,7 @@ export function createDeployStrategy() {
       implementationDescriptions: {
         legacy: 'Legacy fraud evaluation path.',
         'rule-based': 'Rule-based fraud evaluation path.',
+        ml: 'Machine-learning fraud evaluation path for the next fraud version.',
       },
     },
   );
