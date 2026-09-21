@@ -376,6 +376,88 @@ const controlServer = createServer(async (request, response) => {
       });
     }
 
+    if (request.method === 'POST' && request.url === '/deploy/hmg/restore') {
+      const body = await parseBody(request);
+      const artifactDigest = String(body.artifactDigest ?? '');
+      const releaseId = String(body.releaseId ?? '');
+      if (!artifactDigest || !existsSync(manifestPath(artifactDigest))) {
+        return json(response, 409, { error: 'Artifact has not been materialized locally' });
+      }
+      const manifest = JSON.parse(readFileSync(manifestPath(artifactDigest), 'utf8'));
+      installArtifact(artifactDigest, environments.hmg, {
+        environment: 'HMG',
+        feature: 'Restore release ' + releaseId,
+        version: manifest.integrationSha.slice(0, 12),
+        build: 'restore-' + releaseId,
+        artifactDigest,
+        artifactReleaseId: releaseId,
+        restoredAt: new Date().toISOString(),
+      });
+      return json(response, 200, {
+        deploymentId: 'hmg-restore-' + releaseId + '-' + digestKey(artifactDigest).slice(-12),
+        artifactDigest,
+      });
+    }
+
+    if (request.method === 'POST' && request.url === '/deploy/hmg/remove') {
+      clearDirectory(environments.hmg.root);
+      return json(response, 200, { ok: true, removed: true });
+    }
+
+    if (request.method === 'POST' && request.url === '/artifact/rebuild-historical') {
+      const body = await parseBody(request);
+      const sourceSha = String(body.sourceSha ?? '');
+      const sourceReleaseId = String(body.sourceReleaseId ?? '');
+      const repository = String(body.repository ?? REPO);
+      if (!sourceSha || !sourceReleaseId || !repository) {
+        return json(response, 400, { error: 'sourceSha, sourceReleaseId and repository are required' });
+      }
+
+      runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
+      runGit(['cat-file', '-e', sourceSha + '^{commit}']);
+
+      const rebuildId = randomUUID();
+      const artifactDigest = 'sha256:' + createHash('sha256')
+        .update(JSON.stringify({ type: 'historical-rebuild', sourceReleaseId, sourceSha, repository, rebuildId }))
+        .digest('hex');
+      const destination = artifactDir(artifactDigest);
+      const manifest = manifestPath(artifactDigest);
+
+      clearDirectory(destination);
+      archiveRef(sourceSha, destination);
+      writeFileSync(manifest, JSON.stringify({
+        candidateId: undefined,
+        batchId: undefined,
+        sourceReleaseId,
+        repository,
+        sourceSha,
+        prNumbers: [],
+        prHeadShas: {},
+        integrationSha: sourceSha,
+        artifactDigest,
+        immutable: true,
+        createdAt: new Date().toISOString(),
+      }, null, 2) + '\n', 'utf8');
+
+      installArtifact(artifactDigest, environments.hmg, {
+        environment: 'HMG',
+        feature: 'Rebuild release ' + sourceReleaseId,
+        version: sourceSha.slice(0, 12),
+        build: 'rebuild-' + sourceReleaseId + '-' + rebuildId.slice(0, 8),
+        artifactDigest,
+        artifactReleaseId: sourceReleaseId,
+        rebuiltAt: new Date().toISOString(),
+      });
+
+      return json(response, 200, {
+        artifactDigest,
+        artifactRegistry: 'local',
+        artifactRepository: repository,
+        version: sourceSha.slice(0, 12) + '-rebuild-' + rebuildId.slice(0, 8),
+        integrationSha: sourceSha,
+      });
+    }
+
     if (request.method === 'POST' && request.url === '/hmg/ready') {
       const body = await parseBody(request);
       const healthy = existsSync(join(environments.hmg.root, 'deployforge-runtime.json'));
