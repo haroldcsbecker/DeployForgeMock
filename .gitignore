@@ -3,3 +3,5 @@ artifacts/*
 !artifacts/.gitkeep
 environments/*/current/
 stable-package.json
+
+dirty-package-tags.json
