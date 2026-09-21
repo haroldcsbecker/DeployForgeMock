@@ -27,3 +27,18 @@ export class NewPaymentProcessor {
     };
   }
 }
+
+export class CanaryPaymentProcessor {
+  constructor({ fraudStrategy, logger }) {
+    this.fraudStrategy = fraudStrategy;
+    this.logger = logger;
+  }
+
+  process() {
+    this.logger.events.push('payment:canary');
+    return {
+      implementationId: 'canary',
+      fraudImplementationId: this.fraudStrategy.implementationId,
+    };
+  }
+}

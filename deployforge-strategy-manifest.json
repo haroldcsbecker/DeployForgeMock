@@ -26,7 +26,8 @@
       "registration": "paymentProcessor",
       "implementations": [
         "legacy",
-        "new"
+        "new",
+        "canary"
       ],
       "defaultImplementation": "legacy",
       "dependsOn": [
@@ -40,7 +41,8 @@
       "rollbackDescription": "The selected payment implementation can run its compensation handler before an artifact rollback. The target artifact then determines the available implementations.",
       "implementationDescriptions": {
         "legacy": "Legacy payment processor implementation.",
-        "new": "New payment processor implementation with the current fraud strategy dependency."
+        "new": "New payment processor implementation with the current fraud strategy dependency.",
+        "canary": "Canary payment processor used to validate a third implementation before becoming the new default."
       }
     }
   ]
