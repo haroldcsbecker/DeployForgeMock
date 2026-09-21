@@ -24,6 +24,10 @@
           <strong id="version">loading…</strong>
         </div>
         <div class="meta">
+          <span>Fraud strategy</span>
+          <strong id="fraud-strategy">loading…</strong>
+        </div>
+        <div class="meta">
           <span>Build</span>
           <strong id="build">loading…</strong>
         </div>
@@ -61,6 +65,21 @@
       }
 
       void loadRuntimeMetadata();
+
+      async function loadFraudStrategy() {
+        try {
+          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
+          if (!response.ok) throw new Error("strategy state unavailable");
+          const payload = await response.json();
+          const strategy = payload.strategies?.find((item) => item.id === "fraud-strategy");
+          document.querySelector("#fraud-strategy").textContent =
+            strategy?.selectedImplementation || "unavailable";
+        } catch {
+          document.querySelector("#fraud-strategy").textContent = "unavailable";
+        }
+      }
+
+      void loadFraudStrategy();
 
       const countElement = document.querySelector("#count");
       let count = 0;
