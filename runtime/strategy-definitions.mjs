@@ -1,5 +1,5 @@
 import { DeployStrategy } from './deploy-strategy.mjs';
-import { LegacyPaymentProcessor, NewPaymentProcessor } from './strategies/payment-processor.mjs';
+import { CanaryPaymentProcessor, LegacyPaymentProcessor, NewPaymentProcessor } from './strategies/payment-processor.mjs';
 import { FraudLegacy, FraudRules } from './strategies/fraud-strategy.mjs';
 
 export function createDeployStrategy() {
@@ -31,6 +31,7 @@ export function createDeployStrategy() {
       .switchBetween(
         { id: 'legacy', implementation: LegacyPaymentProcessor },
         { id: 'new', implementation: NewPaymentProcessor },
+        { id: 'canary', implementation: CanaryPaymentProcessor },
       )
       .default('legacy')
       .dependsOn('fraud-strategy')
@@ -45,6 +46,7 @@ export function createDeployStrategy() {
         new: {
           execute: async () => ({ details: 'new payment compensation executed' }),
         },
+        canary: async () => ({ details: 'canary payment compensation executed' }),
       }),
     {
       registration: 'paymentProcessor',
@@ -55,6 +57,7 @@ export function createDeployStrategy() {
       implementationDescriptions: {
         legacy: 'Legacy payment processor implementation.',
         new: 'New payment processor implementation with the current fraud strategy dependency.',
+        canary: 'Canary payment processor used to validate a third implementation before becoming the new default.',
       },
     },
   );
