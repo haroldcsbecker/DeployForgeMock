@@ -184,6 +184,19 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
   mkdirSync(join(ROOT, '.runtime-worktrees'), { recursive: true });
 
   try {
+    // The runtime is long-lived and DeployForge can reference a main SHA created
+    // after the runtime started. Refresh origin/main before resolving the frozen SHA.
+    runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
+    try {
+      runGit(['cat-file', '-e', baseMainSha + '^{commit}']);
+    } catch {
+      throw new Error(
+        'Base main commit is not available locally after fetching origin/' +
+        BASE_BRANCH +
+        ': ' +
+        baseMainSha,
+      );
+    }
     runGit(['worktree', 'add', '--detach', temp, baseMainSha]);
 
     for (const [prId, expectedSha] of Object.entries(prHeadShas ?? {})) {
