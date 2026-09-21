@@ -326,6 +326,51 @@ const parseBody = async (request) => {
 
 const controlServer = createServer(async (request, response) => {
   try {
+    if (request.method === 'POST' && request.url === '/artifact/build-base') {
+      const body = await parseBody(request);
+      const repository = String(body.repository ?? REPO);
+      const mainSha = String(body.mainSha ?? '');
+      if (!repository || !mainSha) {
+        return json(response, 400, { error: 'repository and mainSha are required' });
+      }
+
+      runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
+      runGit(['cat-file', '-e', mainSha + '^{commit}']);
+
+      const artifactDigest = 'sha256:' + createHash('sha256')
+        .update(JSON.stringify({ type: 'base', repository, mainSha }))
+        .digest('hex');
+      const destination = artifactDir(artifactDigest);
+      const manifest = manifestPath(artifactDigest);
+
+      if (!existsSync(manifest)) {
+        clearDirectory(destination);
+        archiveRef(mainSha, destination);
+        writeFileSync(manifest, JSON.stringify({
+          candidateId: undefined,
+          batchId: undefined,
+          repository,
+          baseMainSha: mainSha,
+          prNumbers: [],
+          prHeadShas: {},
+          integrationSha: mainSha,
+          artifactDigest,
+          immutable: true,
+          source: 'main',
+          createdAt: new Date().toISOString(),
+        }, null, 2) + '\n', 'utf8');
+      }
+
+      return json(response, 200, {
+        integrationSha: mainSha,
+        artifactDigest,
+        artifactRegistry: 'local',
+        artifactRepository: repository,
+        version: mainSha.slice(0, 12),
+        immutable: true,
+      });
+    }
+
     if (request.method === 'POST' && request.url === '/artifact/build') {
       const body = await parseBody(request);
       const candidateId = String(body.candidateId ?? '');
