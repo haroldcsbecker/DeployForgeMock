@@ -1,16 +1,16 @@
-name: Reset DeployForge GitHub State
+name: DeployForge GitHub BASE Reset
 
 on:
   workflow_dispatch:
     inputs:
       package_name:
-        description: GHCR container package name without namespace or registry
-        required: false
+        description: Container package name
+        required: true
         default: deployforgemock
         type: string
       base_tag:
-        description: Fixed base package and release tag
-        required: false
+        description: Fixed BASE tag
+        required: true
         default: base-main
         type: string
 
@@ -24,52 +24,20 @@ jobs:
   reset:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout current main
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Resolve BASE commit
+      - name: Resolve BASE
         id: base
+        shell: bash
         run: |
           set -euo pipefail
-          SHA="$(git rev-parse HEAD)"
-          SHORT_SHA="${SHA:0:12}"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Delete existing DeployForge releases
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          BASE_TAG="${{ inputs.base_tag || 'base-main' }}"
-          gh release list --limit 1000 --json tagName --jq '.[].tagName' | while IFS= read -r tag; do
-            [ -z "$tag" ] && continue
-            if [ "$tag" = "$BASE_TAG" ]; then
-              echo "Keeping BASE release $tag"
-              continue
-            fi
-            echo "Deleting release $tag"
-            gh release delete "$tag" --cleanup-tag --yes
-          done
-
-      - name: Delete orphaned DeployForge artifact tags
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh api --paginate "/repos/${GITHUB_REPOSITORY}/git/matching-refs/tags" --jq '.[].ref' |
-            sed 's#refs/tags/##' |
-            while IFS= read -r tag; do
-              case "$tag" in
-                release-*|baseline-*|candidate-*|dirty-*)
-                  echo "Deleting tag $tag"
-                  gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" >/dev/null || true
-                  ;;
-              esac
-            done
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${sha:0:12}" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -78,62 +46,99 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push fixed BASE package
+      - name: Build fixed BASE image
+        id: image
+        shell: bash
         env:
           OWNER: ${{ github.repository_owner }}
-          PACKAGE: ${{ inputs.package_name || 'deployforgemock' }}
-          BASE_TAG: ${{ inputs.base_tag || 'base-main' }}
+          PACKAGE: ${{ inputs.package_name }}
+          BASE_TAG: ${{ inputs.base_tag }}
         run: |
           set -euo pipefail
-          IMAGE="ghcr.io/${OWNER,,}/${PACKAGE}"
-          docker build -t "${IMAGE}:${BASE_TAG}" .
-          docker push "${IMAGE}:${BASE_TAG}"
-          echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+          image="ghcr.io/${OWNER,,}/${PACKAGE}"
+          docker build -t "${image}:${BASE_TAG}" .
+          docker push "${image}:${BASE_TAG}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
 
-      - name: Remove old GHCR package versions
+      - name: Remove old package versions
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PACKAGE: ${{ inputs.package_name || 'deployforgemock' }}
-          BASE_TAG: ${{ inputs.base_tag || 'base-main' }}
+          PACKAGE: ${{ inputs.package_name }}
+          BASE_TAG: ${{ inputs.base_tag }}
         run: |
           set -euo pipefail
-          OWNER="${GITHUB_REPOSITORY_OWNER}"
-          BASE_ID="$(gh api --paginate "/users/${OWNER}/packages/container/${PACKAGE}/versions?per_page=100"             --jq '.[] | select((.metadata.container.tags // []) | index(env.BASE_TAG)) | .id' | head -n 1 || true)"
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          versions="$(gh api --paginate "/users/${owner}/packages/container/${PACKAGE}/versions?per_page=100")"
+          base_id="$(printf '%s' "${versions}" | jq -r --arg tag "${BASE_TAG}" '
+            .[]
+            | select((.metadata.container.tags // []) | index($tag))
+            | .id
+          ' | head -n 1)"
 
-          if [ -z "${BASE_ID}" ]; then
-            echo "Unable to identify the new BASE package version."
-            echo "The workflow will not delete existing package versions."
+          if [ -z "${base_id}" ] || [ "${base_id}" = "null" ]; then
+            echo "Could not identify BASE package version after push."
             exit 1
           fi
 
-          gh api --paginate "/users/${OWNER}/packages/container/${PACKAGE}/versions?per_page=100"             --jq '.[] | .id' |
+          printf '%s' "${versions}" | jq -r '.[].id' |
             while IFS= read -r version_id; do
               [ -z "${version_id}" ] && continue
-              if [ "${version_id}" = "${BASE_ID}" ]; then
-                continue
-              fi
+              [ "${version_id}" = "${base_id}" ] && continue
               echo "Deleting package version ${version_id}"
-              gh api --method DELETE "/users/${OWNER}/packages/container/${PACKAGE}/versions/${version_id}" >/dev/null
+              gh api --method DELETE "/users/${owner}/packages/container/${PACKAGE}/versions/${version_id}"
             done
 
-      - name: Publish fixed BASE GitHub release
+      - name: Remove old releases and tags
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BASE_TAG: ${{ inputs.base_tag || 'base-main' }}
+          BASE_TAG: ${{ inputs.base_tag }}
+        run: |
+          set -euo pipefail
+          gh release list --limit 1000 --json tagName --jq '.[].tagName' |
+            while IFS= read -r tag; do
+              [ -z "${tag}" ] && continue
+              [ "${tag}" = "${BASE_TAG}" ] && continue
+              echo "Deleting release ${tag}"
+              gh release delete "${tag}" --cleanup-tag --yes
+            done
+
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/git/matching-refs/tags" --jq '.[].ref' |
+            sed 's#refs/tags/##' |
+            while IFS= read -r tag; do
+              [ -z "${tag}" ] && continue
+              [ "${tag}" = "${BASE_TAG}" ] && continue
+              case "${tag}" in
+                release-*|baseline-*|candidate-*|dirty-*)
+                  echo "Deleting tag ${tag}"
+                  gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" >/dev/null
+                  ;;
+              esac
+            done
+
+      - name: Publish fixed BASE release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_TAG: ${{ inputs.base_tag }}
           SHA: ${{ steps.base.outputs.sha }}
           SHORT_SHA: ${{ steps.base.outputs.short_sha }}
         run: |
           set -euo pipefail
-          gh release create "${BASE_TAG}"             --target "${SHA}"             --title "DeployForge BASE — Fixed Main Baseline"             --notes "Fixed DeployForge rollback root.
+          gh release create "${BASE_TAG}" \
+            --target "${SHA}" \
+            --title "DeployForge BASE — Fixed Main Baseline" \
+            --notes "Permanent DeployForge rollback root.
 
 Source commit: ${SHA}
 Source short SHA: ${SHORT_SHA}
 Tag: ${BASE_TAG}
 
-This release is the permanent emergency rollback point. Normal QA recovery should reject the HMG candidate rather than use this emergency reset."
+Use the normal QA rejection path for ordinary recovery. This BASE release is the emergency restart point."
 
       - name: Summary
         run: |
-          echo "BASE reset complete."
-          echo "Release: ${{ inputs.base_tag || 'base-main' }}"
+          echo "GitHub BASE reset complete."
+          echo "Release: ${{ inputs.base_tag }}"
           echo "Commit: ${{ steps.base.outputs.sha }}"
