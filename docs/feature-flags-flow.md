@@ -187,3 +187,8 @@ For an image, use five visual areas from left to right:
 Add a clear separation line between HMG and Production and show that each side can select a different implementation from the same flag.
 
 Use the words **Feature Flag**, **Implementation**, **Immutable Artifact**, **HMG**, **Production**, **Compensation**, and **Rollback** in the diagram.
+
+
+## BASE artifact generation
+
+A BASE rebuild is tied to the current `main` commit. The baseline workflow publishes `ghcr.io/haroldcsbecker/deployforgemock:base-main` and the `base-main` GitHub Release from that same `main` SHA. The BASE artifact is the root used for emergency rollback and baseline restart.
