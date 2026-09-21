@@ -116,7 +116,7 @@ Production copies the same materialized artifact into \`environments/prod/curren
 In the DeployForge \`.env.local\`, use the physical runtime:
 
 \`\`\`env
-DEPLOYFORGE_ADAPTER_MODE=live
+DEPLOYFORGE_ADAPTER_MODE=mock
 
 ARTIFACT_VERIFY_URL=http://127.0.0.1:8090/artifact/verify
 HMG_DEPLOY_URL=http://127.0.0.1:8090/deploy/hmg
