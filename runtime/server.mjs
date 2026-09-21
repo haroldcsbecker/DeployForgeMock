@@ -326,6 +326,86 @@ const parseBody = async (request) => {
 
 const controlServer = createServer(async (request, response) => {
   try {
+    if (request.method === 'POST' && request.url === '/deploy/base') {
+      const body = await parseBody(request);
+      const repository = String(body.repository ?? REPO);
+      runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
+      const mainSha = String(body.mainSha ?? runGit(['rev-parse', 'origin/' + BASE_BRANCH]));
+      runGit(['cat-file', '-e', mainSha + '^{commit}']);
+
+      const artifactDigest = 'sha256:' + createHash('sha256')
+        .update(JSON.stringify({ type: 'base', repository, mainSha }))
+        .digest('hex');
+      const destination = artifactDir(artifactDigest);
+      const manifest = manifestPath(artifactDigest);
+
+      if (!existsSync(manifest)) {
+        clearDirectory(destination);
+        archiveRef(mainSha, destination);
+        writeFileSync(manifest, JSON.stringify({
+          candidateId: undefined,
+          batchId: undefined,
+          repository,
+          baseMainSha: mainSha,
+          prNumbers: [],
+          prHeadShas: {},
+          integrationSha: mainSha,
+          artifactDigest,
+          immutable: true,
+          source: 'main',
+          createdAt: new Date().toISOString(),
+        }, null, 2) + '\n', 'utf8');
+      }
+
+      const metadata = {
+        artifactDigest,
+        repository,
+        mainSha,
+        version: mainSha.slice(0, 12),
+        build: 'base-main-' + mainSha.slice(0, 12),
+        source: 'main',
+        bootstrappedAt: new Date().toISOString(),
+      };
+
+      for (const [name, environment] of Object.entries(environments)) {
+        installArtifact(artifactDigest, environment, {
+          environment: name.toUpperCase(),
+          feature: 'Base main',
+          version: metadata.version,
+          build: metadata.build,
+          artifactDigest,
+          sourceMainSha: mainSha,
+          base: true,
+          bootstrappedAt: metadata.bootstrappedAt,
+        });
+      }
+
+      writeOriginBuild({
+        feature: 'Base main',
+        version: metadata.version,
+        build: metadata.build,
+        artifactDigest,
+        artifactCandidateId: undefined,
+        artifactIntegrationSha: mainSha,
+        originMainSha: mainSha,
+        updatedAt: metadata.bootstrappedAt,
+      });
+
+      return json(response, 200, {
+        ok: true,
+        artifactDigest,
+        artifactRegistry: 'local',
+        artifactRepository: repository,
+        version: metadata.version,
+        mainSha,
+        environments: {
+          dev: { port: environments.dev.port, artifactDigest },
+          hmg: { port: environments.hmg.port, artifactDigest },
+          prod: { port: environments.prod.port, artifactDigest },
+        },
+      });
+    }
+
     if (request.method === 'POST' && request.url === '/artifact/build-base') {
       const body = await parseBody(request);
       const repository = String(body.repository ?? REPO);
