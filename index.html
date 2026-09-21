@@ -24,6 +24,10 @@
           <strong id="version">loading…</strong>
         </div>
         <div class="meta">
+          <span>Fraud strategy</span>
+          <strong id="fraud-strategy">loading…</strong>
+        </div>
+        <div class="meta">
           <span>Build</span>
           <strong id="build">loading…</strong>
         </div>
@@ -62,8 +66,36 @@
 
       void loadRuntimeMetadata();
 
+      async function loadFraudStrategy() {
+        try {
+          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
+          if (!response.ok) throw new Error("strategy state unavailable");
+          const payload = await response.json();
+          const strategy = payload.strategies?.find((item) => item.id === "fraud-strategy");
+          document.querySelector("#fraud-strategy").textContent =
+            strategy?.selectedImplementation || "unavailable";
+        } catch {
+          document.querySelector("#fraud-strategy").textContent = "unavailable";
+        }
+      }
+
+      void loadFraudStrategy();
+
       const countElement = document.querySelector("#count");
       let count = 0;
+      let fraudImplementation = "legacy";
+
+      async function loadFraudBehavior() {
+        try {
+          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
+          if (!response.ok) throw new Error("strategy state unavailable");
+          const payload = await response.json();
+          const strategy = payload.strategies?.find((item) => item.id === "fraud-strategy");
+          fraudImplementation = strategy?.selectedImplementation || "legacy";
+        } catch {
+          fraudImplementation = "legacy";
+        }
+      }
 
       const render = () => {
         countElement.textContent = count;
@@ -71,15 +103,16 @@
       };
 
       document.querySelector("#increment").addEventListener("click", () => {
-        count += 1;
+        count += fraudImplementation === "rule-based" ? 3 : 1;
         render();
       });
 
       document.querySelector("#decrement").addEventListener("click", () => {
-        count -= 1;
+        count -= fraudImplementation === "rule-based" ? 3 : 1;
         render();
       });
 
+      void loadFraudBehavior().then(render);
       render();
     </script>
   </body>
