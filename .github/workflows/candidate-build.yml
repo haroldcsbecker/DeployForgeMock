@@ -73,6 +73,9 @@ jobs:
           done
           echo "integration_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Validate composed DeployStrategy
+        run: node runtime/validate-strategy-manifest.mjs
+
       - name: Set image
         id: image
         env:

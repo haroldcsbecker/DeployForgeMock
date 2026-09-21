@@ -129,6 +129,17 @@ const archiveRef = (ref, destination) => {
   execFileSync('tar', ['-x', '-C', destination], { input: archive });
 };
 
+const validateStrategyArtifact = (directory) => {
+  try {
+    execFileSync('node', ['runtime/validate-strategy-manifest.mjs'], { cwd: directory, stdio: 'pipe' });
+  } catch (error) {
+    const stderr = error && typeof error === 'object' && 'stderr' in error && Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8').trim() : '';
+    const stdout = error && typeof error === 'object' && 'stdout' in error && Buffer.isBuffer(error.stdout) ? error.stdout.toString('utf8').trim() : '';
+    const details = stderr || stdout || (error instanceof Error ? error.message : 'unknown DeployStrategy validation error');
+    throw new Error('Artifact DeployStrategy validation failed: ' + details);
+  }
+};
+
 const clearDirectory = (directory) => {
   rmSync(directory, { recursive: true, force: true });
   mkdirSync(directory, { recursive: true });
@@ -260,7 +271,10 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
   const destination = artifactDir(artifactDigest);
   const existingManifest = manifestPath(artifactDigest);
 
-  if (existsSync(existingManifest)) return JSON.parse(readFileSync(existingManifest, 'utf8'));
+  if (existsSync(existingManifest)) {
+    validateStrategyArtifact(destination);
+    return JSON.parse(readFileSync(existingManifest, 'utf8'));
+  }
 
   const temp = join(ROOT, '.runtime-worktrees', randomUUID());
   mkdirSync(join(ROOT, '.runtime-worktrees'), { recursive: true });
@@ -311,6 +325,7 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
     const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
     clearDirectory(destination);
     archiveRef(integrationSha, destination);
+    validateStrategyArtifact(destination);
 
     const manifest = {
       candidateId,
@@ -386,6 +401,7 @@ const createSelectiveReworkArtifact = ({
     const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
     clearDirectory(artifactDestination);
     archiveRef(integrationSha, artifactDestination);
+    validateStrategyArtifact(artifactDestination);
     const manifest = {
       candidateId: undefined,
       batchId: undefined,
@@ -443,6 +459,7 @@ const controlServer = createServer(async (request, response) => {
       if (!existsSync(manifest)) {
         clearDirectory(destination);
         archiveRef(mainSha, destination);
+        validateStrategyArtifact(destination);
         writeFileSync(manifest, JSON.stringify({
           candidateId: undefined,
           batchId: undefined,
@@ -457,6 +474,8 @@ const controlServer = createServer(async (request, response) => {
           createdAt: new Date().toISOString(),
         }, null, 2) + '\n', 'utf8');
       }
+
+      validateStrategyArtifact(destination);
 
       const metadata = {
         artifactDigest,
@@ -533,6 +552,7 @@ const controlServer = createServer(async (request, response) => {
       if (!existsSync(manifest)) {
         clearDirectory(destination);
         archiveRef(mainSha, destination);
+        validateStrategyArtifact(destination);
         writeFileSync(manifest, JSON.stringify({
           candidateId: undefined,
           batchId: undefined,
@@ -547,6 +567,8 @@ const controlServer = createServer(async (request, response) => {
           createdAt: new Date().toISOString(),
         }, null, 2) + '\n', 'utf8');
       }
+
+      validateStrategyArtifact(destination);
 
       return json(response, 200, {
         integrationSha: mainSha,
@@ -807,6 +829,7 @@ const controlServer = createServer(async (request, response) => {
 
       clearDirectory(destination);
       archiveRef(sourceSha, destination);
+      validateStrategyArtifact(destination);
       writeFileSync(manifest, JSON.stringify({
         candidateId: undefined,
         batchId: undefined,
@@ -876,14 +899,13 @@ const controlServer = createServer(async (request, response) => {
       }
 
       const manifest = readArtifactStrategyManifest(requestedDigest);
-      const active = requestedDigest === currentDigest;
-      const runtime = active ? await strategyRuntimeFor(environment) : undefined;
+      const persisted = readStrategySelections(environment);
 
       return json(response, 200, {
         environment: body.environment,
         artifactDigest: requestedDigest,
         manifest,
-        selections: runtime?.deployStrategy.selections() ?? {},
+        selections: persisted,
       });
     }
 
