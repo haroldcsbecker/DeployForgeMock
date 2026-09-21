@@ -27,6 +27,10 @@
           <span>Build</span>
           <strong id="build">loading…</strong>
         </div>
+        <div class="meta">
+          <span>Payment strategy</span>
+          <strong id="payment-strategy">loading…</strong>
+        </div>
       </section>
     </main>
 
@@ -61,6 +65,21 @@
       }
 
       void loadRuntimeMetadata();
+
+      async function loadPaymentStrategy() {
+        try {
+          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
+          if (!response.ok) throw new Error("strategy state unavailable");
+          const payload = await response.json();
+          const strategy = payload.strategies?.find((item) => item.id === "payment-processor");
+          document.querySelector("#payment-strategy").textContent =
+            strategy?.selectedImplementation || "unavailable";
+        } catch {
+          document.querySelector("#payment-strategy").textContent = "unavailable";
+        }
+      }
+
+      void loadPaymentStrategy();
 
       const countElement = document.querySelector("#count");
       let count = 0;
