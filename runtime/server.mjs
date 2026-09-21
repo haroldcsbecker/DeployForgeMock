@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
+import { createApplicationRuntime } from './app-container.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENV_ROOT = join(ROOT, 'environments');
@@ -28,6 +29,83 @@ const artifactDir = (digest) => join(ARTIFACT_ROOT, digestKey(digest));
 const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact.json');
 const originBuildPath = join(ROOT, 'origin-build.json');
 const stablePackagePath = join(ROOT, 'stable-package.json');
+const strategyRuntimeCache = new Map();
+
+const runtimeEnvironmentName = (environment) =>
+  Object.entries(environments).find(([, value]) => value === environment)?.[0];
+
+const strategyStatePath = (environmentName) =>
+  join(ENV_ROOT, environmentName, 'strategy-runtime.json');
+
+const invalidateStrategyRuntime = (environment) => {
+  const environmentName = runtimeEnvironmentName(environment);
+  if (!environmentName) return;
+  for (const key of strategyRuntimeCache.keys()) {
+    if (key.startsWith(environmentName + ':')) strategyRuntimeCache.delete(key);
+  }
+  rmSync(strategyStatePath(environmentName), { force: true });
+};
+
+const readStrategySelections = (environmentName) => {
+  const path = strategyStatePath(environmentName);
+  if (!existsSync(path)) return {};
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeStrategySelections = (environmentName, selections) => {
+  mkdirSync(join(ENV_ROOT, environmentName), { recursive: true });
+  writeFileSync(strategyStatePath(environmentName), JSON.stringify(selections, null, 2) + '\n', 'utf8');
+};
+
+const readRuntimeMetadataFor = (environmentName) => {
+  const path = join(environments[environmentName].root, 'deployforge-runtime.json');
+  if (!existsSync(path)) return undefined;
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    return value && typeof value === 'object' ? value : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const activeArtifactDigest = (environmentName) => {
+  const metadata = readRuntimeMetadataFor(environmentName);
+  return typeof metadata?.artifactDigest === 'string' ? metadata.artifactDigest : undefined;
+};
+
+const strategyRuntimeFor = async (environmentName) => {
+  const artifactDigest = activeArtifactDigest(environmentName);
+  if (!artifactDigest) throw new Error('No immutable artifact is active in ' + environmentName.toUpperCase());
+
+  const key = environmentName + ':' + artifactDigest;
+  const cached = strategyRuntimeCache.get(key);
+  if (cached) return cached;
+
+  const environment = environments[environmentName];
+  const runtime = await createApplicationRuntime({
+    environmentRoot: environment.root,
+    environment: environmentName === 'prod' ? 'production' : 'hmg',
+    artifactDigest,
+    selections: readStrategySelections(environmentName),
+  });
+  strategyRuntimeCache.set(key, runtime);
+  return runtime;
+};
+
+const readArtifactStrategyManifest = (artifactDigest) => {
+  const path = join(artifactDir(artifactDigest), 'deployforge-strategy-manifest.json');
+  if (!existsSync(path)) throw new Error('DeployStrategy manifest is not present in artifact ' + artifactDigest);
+  const manifest = JSON.parse(readFileSync(path, 'utf8'));
+  if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.strategies)) {
+    throw new Error('DeployStrategy manifest is invalid for artifact ' + artifactDigest);
+  }
+  return manifest;
+};
 
 const readOriginBuild = () => {
   if (!existsSync(originBuildPath)) return undefined;
@@ -156,6 +234,7 @@ const installArtifact = (digest, environment, metadata) => {
   clearDirectory(environment.root);
   cpSync(source, environment.root, { recursive: true });
   writeRuntimeMetadata(environment.root, metadata);
+  invalidateStrategyRuntime(environment);
 };
 
 const installGitRef = (ref, environment, metadata) => {
@@ -169,6 +248,7 @@ const installGitRef = (ref, environment, metadata) => {
     clearDirectory(environment.root);
     cpSync(temp, environment.root, { recursive: true });
     writeRuntimeMetadata(environment.root, metadata);
+    invalidateStrategyRuntime(environment);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -699,6 +779,92 @@ const controlServer = createServer(async (request, response) => {
         version: sourceSha.slice(0, 12) + '-rebuild-' + rebuildId.slice(0, 8),
         integrationSha: sourceSha,
       });
+    }
+
+    if (request.method === 'POST' && request.url === '/strategies/manifest') {
+      const body = await parseBody(request);
+      const environment = body.environment === 'hmg' ? 'hmg' : body.environment === 'production' ? 'prod' : undefined;
+      if (!environment) return json(response, 400, { error: 'environment must be hmg or production' });
+
+      const currentDigest = activeArtifactDigest(environment);
+      const requestedDigest = typeof body.artifactDigest === 'string' ? body.artifactDigest : currentDigest;
+      if (!requestedDigest) return json(response, 409, { error: 'No immutable artifact is active in the requested environment' });
+      if (requestedDigest !== currentDigest && !existsSync(manifestPath(requestedDigest))) {
+        return json(response, 409, { error: 'Requested artifact is not materialized locally' });
+      }
+
+      const manifest = readArtifactStrategyManifest(requestedDigest);
+      const active = requestedDigest === currentDigest;
+      const runtime = active ? await strategyRuntimeFor(environment) : undefined;
+
+      return json(response, 200, {
+        environment: body.environment,
+        artifactDigest: requestedDigest,
+        manifest,
+        selections: runtime?.deployStrategy.selections() ?? {},
+      });
+    }
+
+    if (request.method === 'POST' && request.url === '/strategies/switch') {
+      const body = await parseBody(request);
+      const environment = body.environment === 'hmg' ? 'hmg' : body.environment === 'production' ? 'prod' : undefined;
+      const strategyId = typeof body.strategyId === 'string' ? body.strategyId.trim() : '';
+      const implementationId = typeof body.implementationId === 'string' ? body.implementationId.trim() : '';
+      const artifactDigest = typeof body.artifactDigest === 'string' ? body.artifactDigest : '';
+
+      if (!environment || !strategyId || !implementationId || !artifactDigest) {
+        return json(response, 400, { error: 'environment, strategyId, implementationId and artifactDigest are required' });
+      }
+
+      const activeDigest = activeArtifactDigest(environment);
+      if (artifactDigest !== activeDigest) {
+        return json(response, 409, {
+          error: 'Active ' + environment.toUpperCase() + ' artifact changed; refresh DeployForge before changing the strategy',
+          activeArtifactDigest: activeDigest,
+        });
+      }
+
+      const runtime = await strategyRuntimeFor(environment);
+      const result = await runtime.deployStrategy.switchTo(runtime.container, strategyId, implementationId, {
+        environment: body.environment,
+        artifactDigest,
+        actor: typeof body.actor === 'string' ? body.actor : 'deployforge',
+      });
+      writeStrategySelections(environment, runtime.deployStrategy.selections());
+
+      const order = runtime.container.resolve('orderService').checkout();
+      return json(response, 200, {
+        environment: body.environment,
+        artifactDigest,
+        ...result,
+        selections: runtime.deployStrategy.selections(),
+        order,
+      });
+    }
+
+    if (request.method === 'POST' && request.url === '/strategies/compensate') {
+      const body = await parseBody(request);
+      const environment = body.environment === 'hmg' ? 'hmg' : body.environment === 'production' ? 'prod' : undefined;
+      const strategyId = typeof body.strategyId === 'string' ? body.strategyId.trim() : '';
+      const implementationId = typeof body.implementationId === 'string' ? body.implementationId.trim() : '';
+      const artifactDigest = typeof body.artifactDigest === 'string' ? body.artifactDigest : '';
+
+      if (!environment || !strategyId || !implementationId || !artifactDigest) {
+        return json(response, 400, { error: 'environment, strategyId, implementationId and artifactDigest are required' });
+      }
+
+      const activeDigest = activeArtifactDigest(environment);
+      if (artifactDigest !== activeDigest) {
+        return json(response, 409, { error: 'Active artifact changed; refresh DeployForge before compensating the strategy' });
+      }
+
+      const runtime = await strategyRuntimeFor(environment);
+      const result = await runtime.deployStrategy.compensate(strategyId, implementationId, {
+        environment: body.environment,
+        artifactDigest,
+        actor: typeof body.actor === 'string' ? body.actor : 'deployforge',
+      });
+      return json(response, 200, result);
     }
 
     if (request.method === 'POST' && request.url === '/hmg/ready') {
