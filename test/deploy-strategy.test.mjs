@@ -19,7 +19,9 @@ test('uses first implementation when no explicit default exists', async () => {
 test('preserves explicit implementation identifiers and default', async () => {
   const strategy = new DeployStrategy();
   class RenamedClass {}
-  function OtherImplementation() {}
+  function OtherImplementation() {
+    return { kind: 'function' };
+  }
   strategy.register(
     'example',
     strategy.switchBetween(
@@ -30,7 +32,7 @@ test('preserves explicit implementation identifiers and default', async () => {
   const container = createContainer({ strict: true });
   await strategy.attach(container);
   assert.equal(strategy.selections().example, 'modern');
-  assert.equal(container.resolve('example').constructor.name, 'OtherImplementation');
+  assert.equal(container.resolve('example').kind, 'function');
 });
 
 test('does not replace ordinary Awilix registrations', async () => {
@@ -51,6 +53,25 @@ test('resolves class and function strategies through Awilix', async () => {
   const order = container.resolve('orderService').checkout();
   assert.equal(order.payment.implementationId, 'legacy');
   assert.equal(order.payment.fraudImplementationId, 'legacy');
+});
+
+test('supports cascading strategy resolution', async () => {
+  const strategy = createDeployStrategy();
+  const container = createContainer({ strict: true });
+  container.register({
+    logger: asValue({ events: [] }),
+    database: asValue({ name: 'db' }),
+    orderService: asClass(OrderService).singleton(),
+  });
+  await strategy.attach(container, {
+    selectionByStrategy: {
+      'fraud-strategy': 'rule-based',
+      'payment-processor': 'new',
+    },
+  });
+  const payment = container.resolve('paymentProcessor').process();
+  assert.equal(payment.implementationId, 'new');
+  assert.equal(payment.fraudImplementationId, 'rule-based');
 });
 
 test('switches only the strategy-controlled registration', async () => {

@@ -19,8 +19,16 @@ export async function createApplicationRuntime({ environmentRoot, environment, a
 
   const strategyModule = await import(moduleUrl(environmentRoot, artifactDigest));
   const deployStrategy = strategyModule.createDeployStrategy();
+  const definitions = deployStrategy.manifest().strategies;
+  const validSelections = Object.fromEntries(
+    Object.entries(selections).filter(([strategyId, implementationId]) =>
+      definitions.some((definition) =>
+        definition.id === strategyId && definition.implementations.includes(implementationId),
+      ),
+    ),
+  );
   await deployStrategy.attach(container, {
-    selectionByStrategy: selections,
+    selectionByStrategy: validSelections,
     environment,
     artifactDigest,
   });

@@ -43,7 +43,6 @@ const invalidateStrategyRuntime = (environment) => {
   for (const key of strategyRuntimeCache.keys()) {
     if (key.startsWith(environmentName + ':')) strategyRuntimeCache.delete(key);
   }
-  rmSync(strategyStatePath(environmentName), { force: true });
 };
 
 const readStrategySelections = (environmentName) => {
