@@ -111,6 +111,23 @@ The local runtime uses the frozen batch data supplied by DeployForge. HMG fetche
 
 Production copies the same materialized artifact into \`environments/prod/current/\`; it does not rebuild it. Rollback copies the previous materialized artifact.
 
+## Deployment isolation
+
+The deployment API treats DEV, HMG, and PROD as independent environment targets.
+
+- `POST /deploy/base` requires `environment=dev|hmg|prod|all`; the `all` mode is only for explicit local bootstrap.
+- `POST /deploy/hmg` changes only HMG and verifies that DEV and PROD artifact digests remain unchanged.
+- `POST /deploy/prod` changes only PROD and verifies that DEV and HMG artifact digests remain unchanged.
+- DeployForge's base-history synchronization never uses the production deployment path. Production changes only through an approved release or an explicit rollback.
+
+The strategy-aware application can read the current environment selection from:
+
+```
+GET /deployforge-strategy-runtime.json
+```
+
+The endpoint returns the active immutable artifact digest and the effective DeployStrategy implementation selected for each strategy.
+
 ## Connect DeployForge
 
 In the DeployForge \`.env.local\`, use the physical runtime:
