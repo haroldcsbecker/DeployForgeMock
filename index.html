@@ -32,6 +32,7 @@
 
     <script>
       const params = new URLSearchParams(window.location.search);
+      let currentEnvironment = params.get("env") || "LOCAL";
 
       async function loadRuntimeMetadata() {
         let metadata = {
@@ -46,7 +47,8 @@
           if (response.ok) metadata = { ...metadata, ...(await response.json()) };
         } catch {}
 
-        const environment = params.get("env") || metadata.environment;
+        currentEnvironment = params.get("env") || metadata.environment;
+        const environment = currentEnvironment;
         const feature = params.get("feature") || metadata.feature;
         const version = params.get("version") || metadata.version;
         const build = params.get("build") || metadata.build;
@@ -65,7 +67,7 @@
 
       const render = () => {
         countElement.textContent = count;
-        document.body.dataset.environment = environment.toLowerCase();
+        document.body.dataset.environment = currentEnvironment.toLowerCase();
       };
 
       document.querySelector("#increment").addEventListener("click", () => {
