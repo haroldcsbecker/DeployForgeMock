@@ -27,7 +27,9 @@
       "implementations": [
         "legacy",
         "new",
-        "canary"
+        "canary",
+        "optimized",
+        "async"
       ],
       "defaultImplementation": "legacy",
       "dependsOn": [
@@ -42,7 +44,9 @@
       "implementationDescriptions": {
         "legacy": "Legacy payment processor implementation.",
         "new": "New payment processor implementation with the current fraud strategy dependency.",
-        "canary": "Canary payment processor used to validate a third implementation before becoming the new default."
+        "canary": "Canary payment processor used to validate a third implementation before becoming the new default.",
+        "optimized": "Optimized payment processor used for the performance-focused version.",
+        "async": "Asynchronous payment processor used for the non-blocking processing version."
       }
     }
   ]

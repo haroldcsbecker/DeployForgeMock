@@ -1,5 +1,5 @@
 import { DeployStrategy } from './deploy-strategy.mjs';
-import { CanaryPaymentProcessor, LegacyPaymentProcessor, NewPaymentProcessor } from './strategies/payment-processor.mjs';
+import { AsyncPaymentProcessor, CanaryPaymentProcessor, LegacyPaymentProcessor, NewPaymentProcessor, OptimizedPaymentProcessor } from './strategies/payment-processor.mjs';
 import { FraudLegacy, FraudRules } from './strategies/fraud-strategy.mjs';
 
 export function createDeployStrategy() {
@@ -32,6 +32,8 @@ export function createDeployStrategy() {
         { id: 'legacy', implementation: LegacyPaymentProcessor },
         { id: 'new', implementation: NewPaymentProcessor },
         { id: 'canary', implementation: CanaryPaymentProcessor },
+        { id: 'optimized', implementation: OptimizedPaymentProcessor },
+        { id: 'async', implementation: AsyncPaymentProcessor },
       )
       .default('legacy')
       .dependsOn('fraud-strategy')
@@ -47,6 +49,8 @@ export function createDeployStrategy() {
           execute: async () => ({ details: 'new payment compensation executed' }),
         },
         canary: async () => ({ details: 'canary payment compensation executed' }),
+        optimized: async () => ({ details: 'optimized payment compensation executed' }),
+        async: async () => ({ details: 'async payment compensation executed' }),
       }),
     {
       registration: 'paymentProcessor',
@@ -58,6 +62,8 @@ export function createDeployStrategy() {
         legacy: 'Legacy payment processor implementation.',
         new: 'New payment processor implementation with the current fraud strategy dependency.',
         canary: 'Canary payment processor used to validate a third implementation before becoming the new default.',
+        optimized: 'Optimized payment processor used for the performance-focused version.',
+        async: 'Asynchronous payment processor used for the non-blocking processing version.',
       },
     },
   );
