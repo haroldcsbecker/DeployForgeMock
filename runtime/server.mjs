@@ -232,6 +232,9 @@ const installArtifact = (digest, environment, metadata) => {
   clearDirectory(environment.root);
   cpSync(source, environment.root, { recursive: true });
   writeRuntimeMetadata(environment.root, metadata);
+  if (metadata.base || metadata.restartStrategies) {
+    writeStrategySelections(runtimeEnvironmentName(environment), {});
+  }
   invalidateStrategyRuntime(environment);
 };
 
@@ -463,6 +466,7 @@ const controlServer = createServer(async (request, response) => {
           artifactDigest,
           sourceMainSha: mainSha,
           base: true,
+          restartStrategies: true,
           bootstrappedAt: metadata.bootstrappedAt,
         });
       }
@@ -666,6 +670,7 @@ const controlServer = createServer(async (request, response) => {
         environment: 'HMG',
         ...originBuild,
         reset: true,
+        restartStrategies: true,
         resetAt: new Date().toISOString(),
       });
       writeOriginBuild(originBuild);
@@ -695,6 +700,7 @@ const controlServer = createServer(async (request, response) => {
         build: 'restore-' + releaseId,
         artifactDigest,
         artifactReleaseId: releaseId,
+        ...(releaseId === 'base-main' ? { base: true, restartStrategies: true } : {}),
         restoredAt: new Date().toISOString(),
       });
       return json(response, 200, {
@@ -969,6 +975,7 @@ const controlServer = createServer(async (request, response) => {
         version: manifest.integrationSha.slice(0, 12),
         build: releaseBuild,
         artifactDigest: body.artifactDigest,
+        ...(body.releaseId === 'base-main' ? { base: true, restartStrategies: true } : {}),
       });
 
       const currentDevDigest = activeArtifactDigest('dev');
