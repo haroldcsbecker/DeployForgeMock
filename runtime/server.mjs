@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, watch } from 'node:fs';
 import { join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENV_ROOT = join(ROOT, 'environments');
@@ -304,23 +304,48 @@ const controlServer = createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/deploy/hmg/reset') {
       const body = await parseBody(request);
       const mainSha = String(body.mainSha ?? '');
+      const repository = String(body.repository ?? REPO);
       if (!mainSha) {
         return json(response, 400, { error: 'mainSha is required' });
       }
 
       runGit(['fetch', 'origin', BASE_BRANCH]);
+
+      const artifactDigest = 'sha256:' + createHash('sha256')
+        .update(JSON.stringify({ type: 'hmg-baseline', repository, mainSha }))
+        .digest('hex');
+      const destination = artifactDir(artifactDigest);
+      const manifest = manifestPath(artifactDigest);
+
+      if (!existsSync(manifest)) {
+        clearDirectory(destination);
+        archiveRef(mainSha, destination);
+        writeFileSync(manifest, JSON.stringify({
+          candidateId: undefined,
+          batchId: undefined,
+          repository,
+          baseMainSha: mainSha,
+          prNumbers: [],
+          prHeadShas: {},
+          integrationSha: mainSha,
+          artifactDigest,
+          immutable: true,
+          createdAt: new Date().toISOString(),
+        }, null, 2) + '\n', 'utf8');
+      }
+
       const originBuild = {
         feature: 'Origin main',
         version: mainSha.slice(0, 12),
         build: 'origin-main-' + mainSha.slice(0, 12),
-        artifactDigest: undefined,
+        artifactDigest,
         artifactCandidateId: undefined,
-        artifactIntegrationSha: undefined,
+        artifactIntegrationSha: mainSha,
         originMainSha: mainSha,
         updatedAt: new Date().toISOString(),
       };
 
-      installGitRef(mainSha, environments.hmg, {
+      installArtifact(artifactDigest, environments.hmg, {
         environment: 'HMG',
         ...originBuild,
         reset: true,
@@ -331,6 +356,10 @@ const controlServer = createServer(async (request, response) => {
       return json(response, 200, {
         deploymentId: 'hmg-reset-' + mainSha.slice(0, 12),
         mainSha,
+        artifactDigest,
+        artifactRegistry: 'local',
+        artifactRepository: repository,
+        version: mainSha.slice(0, 12),
       });
     }
 
