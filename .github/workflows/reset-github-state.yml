@@ -44,8 +44,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          BASE_TAG="${{ inputs.base_tag || 'base-main' }}"
           gh release list --limit 1000 --json tagName --jq '.[].tagName' | while IFS= read -r tag; do
             [ -z "$tag" ] && continue
+            if [ "$tag" = "$BASE_TAG" ]; then
+              echo "Keeping BASE release $tag"
+              continue
+            fi
             echo "Deleting release $tag"
             gh release delete "$tag" --cleanup-tag --yes
           done
@@ -59,7 +64,7 @@ jobs:
             sed 's#refs/tags/##' |
             while IFS= read -r tag; do
               case "$tag" in
-                release-*|baseline-*|candidate-*|dirty-*|${{ inputs.base_tag }})
+                release-*|baseline-*|candidate-*|dirty-*)
                   echo "Deleting tag $tag"
                   gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" >/dev/null || true
                   ;;
@@ -93,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           OWNER="${GITHUB_REPOSITORY_OWNER}"
-          BASE_ID="$(gh api "/users/${OWNER}/packages/container/${PACKAGE}/versions?per_page=100"             --jq '.[] | select(.metadata.container.tags | index(env.BASE_TAG)) | .id' | head -n 1 || true)"
+          BASE_ID="$(gh api --paginate "/users/${OWNER}/packages/container/${PACKAGE}/versions?per_page=100"             --jq '.[] | select((.metadata.container.tags // []) | index(env.BASE_TAG)) | .id' | head -n 1 || true)"
 
           if [ -z "${BASE_ID}" ]; then
             echo "Unable to identify the new BASE package version."
@@ -101,7 +106,7 @@ jobs:
             exit 1
           fi
 
-          gh api "/users/${OWNER}/packages/container/${PACKAGE}/versions?per_page=100"             --jq '.[] | .id' |
+          gh api --paginate "/users/${OWNER}/packages/container/${PACKAGE}/versions?per_page=100"             --jq '.[] | .id' |
             while IFS= read -r version_id; do
               [ -z "${version_id}" ] && continue
               if [ "${version_id}" = "${BASE_ID}" ]; then
