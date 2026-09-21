@@ -8,7 +8,7 @@ const kebabCase = (value) =>
     .toLowerCase();
 
 const implementationId = (implementation) => kebabCase(implementation.name || 'anonymous-implementation');
-const isClass = (implementation) => /^class\\s/.test(Function.prototype.toString.call(implementation));
+const isClass = (implementation) => /^class\s/.test(Function.prototype.toString.call(implementation));
 
 const resolveImplementation = (implementations, value) => {
   if (typeof value === 'string') {
@@ -37,7 +37,7 @@ export class StrategyBuilder {
     this.defaultImplementation = undefined;
     this.lifecycle = {};
     this.rollback = {};
-    this.dependsOn = [];
+    this.dependencies = [];
     this.dependencyCompatibility = {};
   }
 
@@ -57,7 +57,7 @@ export class StrategyBuilder {
   }
 
   dependsOn(...strategyIds) {
-    this.dependsOn = [...new Set(strategyIds)];
+    this.dependencies = [...new Set(strategyIds)];
     return this;
   }
 
@@ -77,7 +77,7 @@ export class StrategyBuilder {
       defaultImplementation: this.defaultImplementation ?? this.implementations[0].id,
       lifecycle: this.lifecycle,
       rollback: this.rollback,
-      dependsOn: [...this.dependsOn],
+      dependsOn: [...this.dependencies],
       dependencyCompatibility: structuredClone(this.dependencyCompatibility),
     };
   }
