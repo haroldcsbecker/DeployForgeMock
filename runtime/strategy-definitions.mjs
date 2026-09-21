@@ -12,7 +12,17 @@ export function createDeployStrategy() {
         { id: 'legacy', implementation: FraudLegacy },
         { id: 'rule-based', implementation: FraudRules },
       ),
-    { registration: 'fraudStrategy' },
+    {
+      registration: 'fraudStrategy',
+      projectRepository: 'https://github.com/haroldcsbecker/DeployForgeMock',
+      sourcePath: 'runtime/strategies/fraud-strategy.mjs',
+      description: 'Controls the fraud evaluation implementation used by the runtime.',
+      rollbackDescription: 'Switching or rolling back the artifact restores the implementation selected by the target artifact. No external compensation handler is required for the fraud strategy.',
+      implementationDescriptions: {
+        legacy: 'Legacy fraud evaluation path.',
+        'rule-based': 'Rule-based fraud evaluation path.',
+      },
+    },
   );
 
   strategy.register(
@@ -36,7 +46,17 @@ export function createDeployStrategy() {
           execute: async () => ({ details: 'new payment compensation executed' }),
         },
       }),
-    { registration: 'paymentProcessor' },
+    {
+      registration: 'paymentProcessor',
+      projectRepository: 'https://github.com/haroldcsbecker/DeployForgeMock',
+      sourcePath: 'runtime/strategies/payment-processor.mjs',
+      description: 'Selects the payment processor implementation used by checkout.',
+      rollbackDescription: 'The selected payment implementation can run its compensation handler before an artifact rollback. The target artifact then determines the available implementations.',
+      implementationDescriptions: {
+        legacy: 'Legacy payment processor implementation.',
+        new: 'New payment processor implementation with the current fraud strategy dependency.',
+      },
+    },
   );
 
   strategy.validate();
