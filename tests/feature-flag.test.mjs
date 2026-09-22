@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createFeatureFlagRegistry } from '../packages/feature-flag/src/index.mjs';
+import {
+  configureFeatureFlags,
+  createFeatureFlagRegistry,
+  featureFlag,
+} from '../packages/feature-flag/src/index.mjs';
 
 const createMemoryStorage = (values = {}) => {
   const persisted = { ...values };
@@ -23,6 +27,19 @@ const createMemoryStorage = (values = {}) => {
     },
   };
 };
+
+test('package-level featureFlag API is synchronous and hydrates through configureFeatureFlags', async () => {
+  const name = 'package-level-' + Date.now();
+  const flag = featureFlag(name, 'legacy');
+  const storage = createMemoryStorage({ [name]: 'new' });
+
+  assert.equal(flag.value, 'legacy');
+
+  await configureFeatureFlags({ storage });
+
+  assert.equal(flag.value, 'new');
+  assert.equal(featureFlag(name, 'legacy'), flag);
+});
 
 test('featureFlag(name, defaultValue) returns synchronously and registers automatically', () => {
   const registry = createFeatureFlagRegistry();
