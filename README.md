@@ -1,154 +1,102 @@
-# Deploy Forge Mock
+# DeployForge Mock
 
-A deliberately small deployment target used to demonstrate the DeployForge workflow.
+A deliberately small deployment target used to demonstrate the DeployForge workflow and runtime Feature Flag selection.
 
-The application has almost no business logic. Its purpose is to make deployment state visible.
+## Feature Flag runtime
+
+There is one runtime concept: **Feature Flag**.
+
+A Feature Flag contains a string selection and a map of named callbacks:
+
+```ts
+flag.select('canary', {
+  legacy: legacyCallback,
+  new: newCallback,
+  canary: canaryCallback,
+});
+```
+
+Two-option behavior uses the same API:
+
+```ts
+flag.select('legacy', {
+  legacy: legacyCheckout,
+  new: newCheckout,
+});
+```
+
+The Feature Flag is deliberately independent from Awilix. Awilix constructs normal services; the Feature Flag only chooses which callback executes. Changing a value does not rebuild the container or restart the application.
+
+Available demo flags:
+
+- `fraud-mode`: `legacy | rule-based`
+- `checkout-mode`: `legacy | new`
+- `payment-mode`: `legacy | new | canary`
+
+Selections are persisted independently for HMG and Production and are validated against the immutable active artifact.
 
 ## Environments
-
-- `hmg/` — shared homologation configuration used by QA.
-- `prod/` — production configuration used after approval.
-
-The two configurations are intentionally tiny. DeployForge can treat the built image as the immutable candidate while these directories document the environment-specific deployment settings.
-
-## Demo UI
-
-The page displays:
-
-- environment;
-- feature name;
-- application version;
-- build identifier;
-- a simple counter.
-
-The environment changes the page background:
-
-- HMG → teal;
-- PROD → blue.
-
-The page also accepts query parameters so a deployment can inject visible metadata without changing the application code:
-
-```
-/?env=HMG&feature=Counter%20v2&version=1.1.0&build=candidate-123
-```
-
-## Run locally
-
-```bash
-npm test
-docker build -t deployforge-mock .
-docker run --rm -p 8080:80 deployforge-mock
-```
-
-Then open:
-
-```
-http://localhost:8080/?env=HMG&feature=Candidate%20demo&version=1.0.0&build=local
-```
-
-## DeployForge showcase
-
-A simple demonstration can change only one visible feature in a PR, for example:
-
-- counter behavior;
-- background/environment styling;
-- visible feature label.
-
-That PR can then travel through:
-
-```
-PR
-  ↓
-Batch
-  ↓
-Candidate
-  ↓
-HMG
-  ↓
-QA approval
-  ↓
-Merge
-  ↓
-Production
-  ↓
-Rollback
-```
-
-The repository is intentionally simple so that the deployment mechanics remain the thing being demonstrated.
-
-
-## Physical local environments
-
-Run the three separated application folders and the local deployment API:
-
-\`\`\`bash
-npm install
-npm run demo:start
-\`\`\`
-
-This starts:
 
 - DEV: http://localhost:8081
 - HMG: http://localhost:8082
 - PROD: http://localhost:8083
-- deployment API: http://localhost:8090
+- deployment/Feature Flag control API: http://localhost:8090
 
-Generated files are physically separated:
+Run:
 
-\`\`\`
-environments/
-  dev/current/
-  hmg/current/
-  prod/current/
+```bash
+npm install
+npm run demo:start
+```
 
-artifacts/
-  <artifact-digest>/
-\`\`\`
+## Validation
 
-DEV follows the local DeployForgeMock checkout, including uncommitted code changes. DEV follows the local working tree and is refreshed automatically when local files change. HMG and PROD start empty and are populated only by explicit DeployForge deployment/reset operations. When QA rejects an HMG candidate, DeployForge calls `/deploy/hmg/reset` with the batch's frozen base-branch SHA so the physical HMG directory is restored before another candidate is promoted.
+```bash
+npm test
+npm run demo:check
+npm run feature-flag:validate
+```
 
-The local runtime uses the frozen batch data supplied by DeployForge. HMG fetches each exact PR head, verifies the SHA, merges the PRs in batch order on top of the frozen base-branch SHA, stores the resulting files as a local immutable artifact, and copies that artifact into \`environments/hmg/current/\`.
+## Runtime API
 
-Production copies the same materialized artifact into \`environments/prod/current/\`; it does not rebuild it. Rollback copies the previous materialized artifact.
+Read the active Feature Flag state:
+
+```
+GET /deployforge-feature-flags-runtime.json
+```
+
+Read the artifact manifest:
+
+```
+POST /feature-flags/manifest
+```
+
+Change one environment's runtime selection:
+
+```
+POST /feature-flags/select
+
+{
+  "environment": "hmg",
+  "featureFlagId": "payment-mode",
+  "selectedValue": "canary",
+  "artifactDigest": "sha256:..."
+}
+```
+
+The selection endpoint validates that the flag and selected value exist in the currently active immutable artifact, mutates only runtime selection state, and then executes the existing application service with the selected callbacks.
+
+Artifact rollback remains a deployment concern. The Feature Flag abstraction has no rollback or compensation API.
 
 ## Deployment isolation
 
-The deployment API treats DEV, HMG, and PROD as independent environment targets.
-
-- `POST /deploy/base` requires `environment=dev|hmg|prod|all`; use `all` only for the explicit clean BASE reset.
-- `POST /deploy/hmg` changes only HMG and verifies that DEV and PROD artifact digests remain unchanged.
-- `POST /deploy/prod` changes only PROD and verifies that DEV and HMG artifact digests remain unchanged.
-- DeployForge's base-history synchronization never uses the production deployment path. Production changes only through an approved release or an explicit rollback.
-
-The strategy-aware application can read the current environment selection from:
+HMG and Production use independent selection files:
 
 ```
-GET /deployforge-strategy-runtime.json
+environments/
+  hmg/feature-flags.json
+  prod/feature-flags.json
 ```
 
-The endpoint returns the active immutable artifact digest and the effective DeployStrategy implementation selected for each strategy.
+Changing a Feature Flag in HMG does not change Production and vice versa.
 
-## Connect DeployForge
-
-In the DeployForge \`.env.local\`, use the physical runtime:
-
-\`\`\`env
-DEPLOYFORGE_ADAPTER_MODE=mock
-
-ARTIFACT_VERIFY_URL=http://127.0.0.1:8090/artifact/verify
-HMG_DEPLOY_URL=http://127.0.0.1:8090/deploy/hmg
-HMG_READY_URL=http://127.0.0.1:8090/hmg/ready
-PRODUCTION_DEPLOY_URL=http://127.0.0.1:8090/deploy/prod
-PRODUCTION_HEALTH_URL=http://127.0.0.1:8090/prod/health
-STABLE_PACKAGE_PROMOTE_URL=http://127.0.0.1:8090/package/stable
-\`\`\`
-
-Keep the normal GitHub App and MongoDB settings. The deployment runtime uses the local DeployForgeMock checkout and its Git remote. Set `DEPLOYFORGE_MOCK_BASE_BRANCH=master` when the target repository uses `master` instead of `main`.
-
-For the local demo, keep the three QA eligibility gates disabled:
-
-\`\`\`env
-DEPLOYFORGE_REQUIRE_GITHUB_REVIEW=false
-DEPLOYFORGE_REQUIRE_PIPELINE=false
-DEPLOYFORGE_REQUIRE_SINGLE_COMMIT=false
-\`\`\`

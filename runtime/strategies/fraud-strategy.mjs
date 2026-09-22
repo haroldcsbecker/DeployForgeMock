@@ -1,13 +1,13 @@
-export function FraudLegacy() {
+export function createFraudLegacy() {
   return {
     implementationId: 'legacy',
-    evaluate: () => true,
+    evaluate: () => ({ implementationId: 'legacy', approved: true }),
   };
 }
 
-export function FraudRules() {
+export function createFraudRules() {
   return {
     implementationId: 'rule-based',
-    evaluate: () => true,
+    evaluate: () => ({ implementationId: 'rule-based', approved: true }),
   };
 }

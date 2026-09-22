@@ -1,194 +1,84 @@
-# DeployForge Feature Flags — Image Flow Reference
+# DeployForge Feature Flag flow
 
-Use this document as the source description for a flow-diagram image. The diagram should show **one Feature Flag with multiple implementations**, the **immutable artifact boundary**, and the fact that **HMG and Production are independent environment states**.
+The runtime has one concept: **Feature Flag**.
 
-## Core flow
-
-```
-                         ┌─────────────────────────────┐
-                         │ Feature Flag definition     │
-                         │                             │
-                         │ payment-processor           │
-                         │ implementations:            │
-                         │   legacy                     │
-                         │   new                        │
-                         │   canary                     │
-                         │ default: legacy              │
-                         └──────────────┬──────────────┘
-                                        │
-                                        ▼
-                         ┌─────────────────────────────┐
-                         │ Git project                  │
-                         │ DeployForgeMock              │
-                         │ runtime/strategies/...       │
-                         └──────────────┬──────────────┘
-                                        │
-                                        ▼
-                         ┌─────────────────────────────┐
-                         │ Immutable artifact            │
-                         │ sha256:<digest>               │
-                         │ carries the manifest          │
-                         └──────────────┬──────────────┘
-                                        │
-                     ┌──────────────────┴──────────────────┐
-                     │                                     │
-                     ▼                                     ▼
-          ┌─────────────────────┐               ┌─────────────────────┐
-          │ HMG                 │               │ Production          │
-          │                     │               │                     │
-          │ artifact A          │               │ artifact B          │
-          │ flag = canary       │               │ flag = legacy       │
-          │                     │               │                     │
-          │ QA validation       │               │ production control  │
-          └──────────┬──────────┘               └──────────┬──────────┘
-                     │                                     │
-                     │ switch only HMG                     │ switch only PROD
-                     ▼                                     ▼
-          ┌─────────────────────┐               ┌─────────────────────┐
-          │ Runtime             │               │ Runtime             │
-          │ reads exact         │               │ reads exact         │
-          │ artifact + flag     │               │ artifact + flag     │
-          └─────────────────────┘               └─────────────────────┘
-```
-
-## Environment isolation
-
-The most important visual rule is:
+## Core model
 
 ```
-                    SAME FEATURE FLAG
-                           │
-            ┌──────────────┴──────────────┐
-            │                             │
-            ▼                             ▼
-         HMG state                   PROD state
-         independent                independent
-
-       canary selected              legacy selected
-       artifact A                   artifact B
-            │                             │
-            └──────────────┬──────────────┘
-                           │
-                  NO implicit propagation
+Feature Flag
+    |
+    +-- selected string value
+    |
+    +-- named callbacks
 ```
-
-Changing a flag in HMG does not change Production. Changing a flag in Production does not change HMG.
-
-## Artifact-bound implementation rule
-
-A flag action is allowed only when the implementation exists in the **currently active immutable artifact**.
-
-```
-User selects implementation
-           │
-           ▼
-   Is flag present?
-      /         \
-    NO           YES
-    │             │
-    ▼             ▼
- BLOCK         Is implementation
- action        in artifact manifest?
-                  /       \
-                NO         YES
-                │           │
-                ▼           ▼
-              BLOCK      validate
-                           │
-                           ▼
-                         switch
-```
-
-A missing flag or missing implementation must never be fabricated by the control plane.
-
-## Multiple versions of one flag
 
 Example:
 
-```
-Feature Flag: payment-processor
-
-┌─────────┬────────────────────────────────────────────┐
-│ legacy  │ old payment implementation                 │
-├─────────┼────────────────────────────────────────────┤
-│ new     │ current replacement                        │
-├─────────┼────────────────────────────────────────────┤
-│ canary  │ third implementation for controlled testing│
-└─────────┴────────────────────────────────────────────┘
-
-HMG        → canary
-Production → new
+```ts
+flag.select('canary', {
+  legacy: legacyPayment,
+  new: newPayment,
+  canary: canaryPayment,
+});
 ```
 
-The same flag can therefore have different selected implementations in different environments.
+A two-value selection is not a different type:
 
-## Rollback and compensation
-
-The image should separate **compensation** from **artifact rollback**:
-
-```
-                 Rollback requested
-                        │
-             ┌──────────┴──────────┐
-             │                     │
-             ▼                     ▼
-      Compensation needed?     Target artifact
-             │                     │
-             ▼                     ▼
-      run implementation      restore exact
-      compensation handler     immutable digest
-             │                     │
-             └──────────┬──────────┘
-                        ▼
-                 target artifact
-                 becomes active
-                        │
-                        ▼
-              feature flag state is
-              reconciled to target
-              artifact's manifest
+```ts
+flag.select('legacy', {
+  legacy: legacyCheckout,
+  new: newCheckout,
+});
 ```
 
-For the BASE artifact, the path is an emergency recovery path: the base artifact is immutable, is not blocked by the normal HMG lock, and feature-flag selections are reset to the BASE manifest defaults.
-
-## Responsibility boundaries
+## Awilix boundary
 
 ```
-HMG tab
-├─ show flags present in HMG
-├─ switch HMG implementation
-├─ show rollback/compensation behavior
-└─ HMG-only rollback / emergency BASE
-
-Production tab
-├─ show flags present in Production
-├─ switch Production implementation
-├─ show rollback/compensation behavior
-└─ Production-only rollback / emergency BASE
-
-Shared information
-├─ Git project
-├─ source path
-├─ flag description
-├─ implementation descriptions
-└─ active immutable artifact digest
+Awilix
+  |
+  +-- normal services/dependencies
+  |
+  +-- FeatureFlag singleton
+          |
+          +-- selected value
+          |
+          +-- callback map supplied by the application
 ```
 
-## Suggested image composition
+The FeatureFlag implementation never registers, proxies, resolves, or replaces Awilix services.
 
-For an image, use five visual areas from left to right:
+Changing a selection only updates the environment's persisted string value. The existing application container remains alive.
 
-1. **Flag definition** — name, description, and 2–3 implementation versions.
-2. **Git project** — source file and manifest.
-3. **Immutable artifact** — SHA-256 digest as the boundary.
-4. **HMG** — selected implementation and QA responsibility.
-5. **Production** — selected implementation and production responsibility.
+## Environment state
 
-Add a clear separation line between HMG and Production and show that each side can select a different implementation from the same flag.
+```
+                     Feature Flag: payment-mode
+                              |
+                +-------------+-------------+
+                |                           |
+              HMG                         Production
+            canary                         legacy
+              |                              |
+        same artifact                    same/independent
+        runtime state                    runtime state
+```
 
-Use the words **Feature Flag**, **Implementation**, **Immutable Artifact**, **HMG**, **Production**, **Compensation**, and **Rollback** in the diagram.
+Selections are validated against the immutable artifact's manifest. A missing Feature Flag or missing value blocks the selection.
 
+## Rollback boundary
 
-## BASE artifact generation
+Artifact rollback belongs to DeployForge deployment control.
 
-A BASE rebuild is tied to the current `main` commit. The baseline workflow publishes `ghcr.io/haroldcsbecker/deployforgemock:base-main` and the `base-main` GitHub Release from that same `main` SHA. The BASE artifact is the root used for emergency rollback and baseline restart.
+```
+DeployForge artifact rollback
+          |
+          v
+   restore immutable artifact
+          |
+          v
+ reconcile Feature Flags to
+ target artifact values/defaults
+```
+
+There is no Feature Flag compensation or rollback handler.
+

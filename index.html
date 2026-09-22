@@ -12,7 +12,7 @@
         <p class="eyebrow">DeployForge Mock</p>
         <h1 id="environment">ENV</h1>
         <p id="feature">Feature: loading…</p>
-        <div id="strategy-banner" class="strategy-banner" hidden></div>
+        <div id="feature-flag-banner" class="feature-flag-banner" hidden></div>
 
         <div class="counter">
           <button id="decrement" type="button">−</button>
@@ -25,15 +25,15 @@
           <strong id="version">loading…</strong>
         </div>
         <div class="meta">
-          <span>Fraud strategy</span>
+          <span>Fraud Feature Flag</span>
           <strong id="fraud-strategy">loading…</strong>
         </div>
         <div class="meta">
-          <span>Payment strategy</span>
+          <span>Payment Feature Flag</span>
           <strong id="payment-strategy">loading…</strong>
         </div>
         <div class="meta">
-          <span>Checkout flag</span>
+          <span>Checkout Feature Flag</span>
           <strong id="checkout-flag">loading…</strong>
         </div>
         <div class="meta">
@@ -62,28 +62,28 @@
         document.querySelector("#feature").textContent = "Feature: " + String(metadata.feature || "Deployment artifact");
       }
 
-      async function loadStrategyState() {
+      async function loadFeatureFlagState() {
         try {
-          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
-          if (!response.ok) throw new Error("strategy state unavailable");
+          const response = await fetch("/deployforge-feature-flags-runtime.json", { cache: "no-store" });
+          if (!response.ok) throw new Error("feature flag state unavailable");
           const payload = await response.json();
-          const fraud = payload.strategies?.find((item) => item.id === "fraud-strategy");
-          const payment = payload.strategies?.find((item) => item.id === "payment-processor");
-          const checkout = payload.strategies?.find((item) => item.id === "new-checkout");
+          const fraud = payload.featureFlags?.find((item) => item.id === "fraud-mode");
+          const payment = payload.featureFlags?.find((item) => item.id === "payment-mode");
+          const checkout = payload.featureFlags?.find((item) => item.id === "checkout-mode");
 
-          state.fraud = fraud?.selectedImplementation || "legacy";
-          state.payment = payment?.selectedImplementation || "legacy";
-          state.checkout = checkout?.flagEnabled === true;
+          state.fraud = fraud?.selectedValue || "legacy";
+          state.payment = payment?.selectedValue || "legacy";
+          state.checkout = checkout?.selectedValue === 'new';
 
           document.querySelector("#fraud-strategy").textContent = state.fraud;
           document.querySelector("#payment-strategy").textContent = state.payment;
           document.querySelector("#checkout-flag").textContent = state.checkout ? "enabled" : "disabled";
 
-          const banner = document.querySelector("#strategy-banner");
+          const banner = document.querySelector("#feature-flag-banner");
           banner.hidden = false;
           banner.textContent = state.checkout
-            ? "NEW CHECKOUT ENABLED · Strategy changes are visible in this runtime."
-            : "LEGACY CHECKOUT · Feature Flag is disabled.";
+            ? "NEW CHECKOUT SELECTED · Feature Flag changes are visible in this runtime."
+            : "LEGACY CHECKOUT · Feature Flag selects legacy.";
           banner.dataset.enabled = String(state.checkout);
         } catch {
           document.querySelector("#fraud-strategy").textContent = "unavailable";
@@ -114,7 +114,7 @@
 
       void Promise.all([
         loadRuntimeMetadata(),
-        loadStrategyState(),
+        loadFeatureFlagState(),
       ]).catch(() => {});
 
       render();

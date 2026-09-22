@@ -7,7 +7,7 @@
     "test": "node --test",
     "demo:start": "node runtime/server.mjs",
     "demo:check": "node --check runtime/server.mjs",
-    "strategy:validate": "node runtime/validate-strategy-manifest.mjs",
+    "feature-flag:validate": "node runtime/validate-feature-flag-manifest.mjs",
     "demo:reset": "curl -fsS -X POST http://127.0.0.1:8090/demo/reset -H 'Content-Type: application/json'"
   },
   "dependencies": {

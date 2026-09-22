@@ -40,8 +40,8 @@ jobs:
 
       - name: Install runtime dependencies
         run: npm install --no-package-lock
-      - name: Validate DeployStrategy
-        run: node runtime/validate-strategy-manifest.mjs
+      - name: Validate Feature Flags
+        run: node runtime/validate-feature-flag-manifest.mjs
 
       - name: Resolve source
         id: source

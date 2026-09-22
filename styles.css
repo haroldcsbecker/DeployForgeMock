@@ -100,7 +100,7 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-.strategy-banner {
+.feature-flag-banner {
   margin: 16px 0 24px;
   padding: 12px 14px;
   border: 1px solid rgba(255,255,255,.2);
@@ -108,9 +108,9 @@ h1 {
   font-size: 13px;
   font-weight: 700;
 }
-.strategy-banner[data-enabled="true"] {
+.feature-flag-banner[data-enabled="true"] {
   background: rgba(16, 185, 129, .18);
 }
-.strategy-banner[data-enabled="false"] {
+.feature-flag-banner[data-enabled="false"] {
   background: rgba(148, 163, 184, .12);
 }

@@ -30,24 +30,24 @@ const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact
 const originBuildPath = join(ROOT, 'origin-build.json');
 const stablePackagePath = join(ROOT, 'stable-package.json');
 const dirtyPackageTagsPath = join(ROOT, 'dirty-package-tags.json');
-const strategyRuntimeCache = new Map();
+const featureFlagRuntimeCache = new Map();
 
 const runtimeEnvironmentName = (environment) =>
   Object.entries(environments).find(([, value]) => value === environment)?.[0];
 
-const strategyStatePath = (environmentName) =>
-  join(ENV_ROOT, environmentName, 'strategy-runtime.json');
+const featureFlagStatePath = (environmentName) =>
+  join(ENV_ROOT, environmentName, 'feature-flags.json');
 
-const invalidateStrategyRuntime = (environment) => {
+const invalidateFeatureFlagRuntime = (environment) => {
   const environmentName = runtimeEnvironmentName(environment);
   if (!environmentName) return;
-  for (const key of strategyRuntimeCache.keys()) {
-    if (key.startsWith(environmentName + ':')) strategyRuntimeCache.delete(key);
+  for (const key of featureFlagRuntimeCache.keys()) {
+    if (key.startsWith(environmentName + ':')) featureFlagRuntimeCache.delete(key);
   }
 };
 
-const readStrategySelections = (environmentName) => {
-  const path = strategyStatePath(environmentName);
+const readFeatureFlagSelections = (environmentName) => {
+  const path = featureFlagStatePath(environmentName);
   if (!existsSync(path)) return {};
   try {
     const value = JSON.parse(readFileSync(path, 'utf8'));
@@ -57,9 +57,9 @@ const readStrategySelections = (environmentName) => {
   }
 };
 
-const writeStrategySelections = (environmentName, selections) => {
+const writeFeatureFlagSelections = (environmentName, selections) => {
   mkdirSync(join(ENV_ROOT, environmentName), { recursive: true });
-  writeFileSync(strategyStatePath(environmentName), JSON.stringify(selections, null, 2) + '\n', 'utf8');
+  writeFileSync(featureFlagStatePath(environmentName), JSON.stringify(selections, null, 2) + '\n', 'utf8');
 };
 
 const readRuntimeMetadataFor = (environmentName) => {
@@ -78,31 +78,28 @@ const activeArtifactDigest = (environmentName) => {
   return typeof metadata?.artifactDigest === 'string' ? metadata.artifactDigest : undefined;
 };
 
-const strategyRuntimeFor = async (environmentName) => {
+const featureFlagRuntimeFor = async (environmentName) => {
   const artifactDigest = activeArtifactDigest(environmentName);
   if (!artifactDigest) throw new Error('No immutable artifact is active in ' + environmentName.toUpperCase());
-
   const key = environmentName + ':' + artifactDigest;
-  const cached = strategyRuntimeCache.get(key);
+  const cached = featureFlagRuntimeCache.get(key);
   if (cached) return cached;
-
   const environment = environments[environmentName];
   const runtime = await createApplicationRuntime({
     environmentRoot: environment.root,
-    environment: environmentName === 'prod' ? 'production' : 'hmg',
     artifactDigest,
-    selections: readStrategySelections(environmentName),
+    selections: readFeatureFlagSelections(environmentName),
   });
-  strategyRuntimeCache.set(key, runtime);
+  featureFlagRuntimeCache.set(key, runtime);
   return runtime;
 };
 
-const readArtifactStrategyManifest = (artifactDigest) => {
-  const path = join(artifactDir(artifactDigest), 'deployforge-strategy-manifest.json');
-  if (!existsSync(path)) throw new Error('DeployStrategy manifest is not present in artifact ' + artifactDigest);
+const readArtifactFeatureFlagManifest = (artifactDigest) => {
+  const path = join(artifactDir(artifactDigest), 'feature-flags-manifest.json');
+  if (!existsSync(path)) throw new Error('Feature Flag manifest is not present in artifact ' + artifactDigest);
   const manifest = JSON.parse(readFileSync(path, 'utf8'));
-  if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.strategies)) {
-    throw new Error('DeployStrategy manifest is invalid for artifact ' + artifactDigest);
+  if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.featureFlags)) {
+    throw new Error('Feature Flag manifest is invalid for artifact ' + artifactDigest);
   }
   return manifest;
 };
@@ -129,14 +126,14 @@ const archiveRef = (ref, destination) => {
   execFileSync('tar', ['-x', '-C', destination], { input: archive });
 };
 
-const validateStrategyArtifact = (directory) => {
+const validateFeatureFlagArtifact = (directory) => {
   try {
-    execFileSync('node', ['runtime/validate-strategy-manifest.mjs'], { cwd: directory, stdio: 'pipe' });
+    execFileSync('node', ['runtime/validate-feature-flag-manifest.mjs'], { cwd: directory, stdio: 'pipe' });
   } catch (error) {
     const stderr = error && typeof error === 'object' && 'stderr' in error && Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8').trim() : '';
     const stdout = error && typeof error === 'object' && 'stdout' in error && Buffer.isBuffer(error.stdout) ? error.stdout.toString('utf8').trim() : '';
-    const details = stderr || stdout || (error instanceof Error ? error.message : 'unknown DeployStrategy validation error');
-    throw new Error('Artifact DeployStrategy validation failed: ' + details);
+    const details = stderr || stdout || (error instanceof Error ? error.message : 'unknown Feature Flag validation error');
+    throw new Error('Artifact Feature Flag validation failed: ' + details);
   }
 };
 
@@ -151,8 +148,8 @@ const cleanDemoState = () => {
   rmSync(originBuildPath, { force: true });
   rmSync(stablePackagePath, { force: true });
   rmSync(dirtyPackageTagsPath, { force: true });
-  Object.keys(environments).forEach((environmentName) => rmSync(strategyStatePath(environmentName), { force: true }));
-  strategyRuntimeCache.clear();
+  Object.keys(environments).forEach((environmentName) => rmSync(featureFlagStatePath(environmentName), { force: true }));
+  featureFlagRuntimeCache.clear();
 };
 
 
@@ -235,7 +232,7 @@ const syncDevProject = () => {
     source: 'local-checkout',
     synchronizedAt: new Date().toISOString(),
   });
-  invalidateStrategyRuntime(environments.dev);
+  invalidateFeatureFlagRuntime(environments.dev);
 };
 
 const startDevSync = () => {
@@ -285,10 +282,10 @@ const installArtifact = (digest, environment, metadata) => {
   clearDirectory(environment.root);
   cpSync(source, environment.root, { recursive: true });
   writeRuntimeMetadata(environment.root, canonicalArtifactMetadata(digest, metadata));
-  if (metadata.base || metadata.restartStrategies) {
-    writeStrategySelections(runtimeEnvironmentName(environment), {});
+  if (metadata.base || metadata.restartFeatureFlags) {
+    writeFeatureFlagSelections(runtimeEnvironmentName(environment), {});
   }
-  invalidateStrategyRuntime(environment);
+  invalidateFeatureFlagRuntime(environment);
 };
 
 const installGitRef = (ref, environment, metadata) => {
@@ -302,7 +299,7 @@ const installGitRef = (ref, environment, metadata) => {
     clearDirectory(environment.root);
     cpSync(temp, environment.root, { recursive: true });
     writeRuntimeMetadata(environment.root, metadata);
-    invalidateStrategyRuntime(environment);
+    invalidateFeatureFlagRuntime(environment);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -313,7 +310,7 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
   const existingManifest = manifestPath(artifactDigest);
 
   if (existsSync(existingManifest)) {
-    validateStrategyArtifact(destination);
+    validateFeatureFlagArtifact(destination);
     return JSON.parse(readFileSync(existingManifest, 'utf8'));
   }
 
@@ -366,7 +363,7 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
     const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
     clearDirectory(destination);
     archiveRef(integrationSha, destination);
-    validateStrategyArtifact(destination);
+    validateFeatureFlagArtifact(destination);
 
     const manifest = {
       candidateId,
@@ -405,7 +402,7 @@ const createProductionArtifact = ({ repository = REPO, sourceSha, excludedShas =
   const destination = artifactDir(artifactDigest);
   const manifestPathname = manifestPath(artifactDigest);
   if (existsSync(manifestPathname)) {
-    validateStrategyArtifact(destination);
+    validateFeatureFlagArtifact(destination);
     return JSON.parse(readFileSync(manifestPathname, 'utf8'));
   }
 
@@ -437,13 +434,13 @@ const createProductionArtifact = ({ repository = REPO, sourceSha, excludedShas =
     const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
     clearDirectory(destination);
     archiveRef(integrationSha, destination);
-    validateStrategyArtifact(destination);
+    validateFeatureFlagArtifact(destination);
 
     if (!existsSync(join(destination, 'index.html'))) {
       throw new Error('Production canary failed: application entrypoint index.html is missing');
     }
-    if (!existsSync(join(destination, 'deployforge-strategy-manifest.json'))) {
-      throw new Error('Production canary failed: DeployStrategy manifest is missing');
+    if (!existsSync(join(destination, 'feature-flags-manifest.json'))) {
+      throw new Error('Production canary failed: FeatureFlag manifest is missing');
     }
 
     const manifest = {
@@ -489,7 +486,7 @@ const createDemoRefArtifact = ({ artifactId, sourceRef, repository = REPO }) => 
 
   clearDirectory(destination);
   archiveRef(sourceSha, destination);
-  validateStrategyArtifact(destination);
+  validateFeatureFlagArtifact(destination);
 
   const manifest = {
     artifactId,
@@ -560,7 +557,7 @@ const createSelectiveReworkArtifact = ({
     const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
     clearDirectory(artifactDestination);
     archiveRef(integrationSha, artifactDestination);
-    validateStrategyArtifact(artifactDestination);
+    validateFeatureFlagArtifact(artifactDestination);
     const manifest = {
       candidateId: undefined,
       batchId: undefined,
@@ -609,7 +606,7 @@ const controlServer = createServer(async (request, response) => {
 
       clearDirectory(destination);
       archiveRef(mainSha, destination);
-      validateStrategyArtifact(destination);
+      validateFeatureFlagArtifact(destination);
       writeFileSync(manifest, JSON.stringify({
         repository: REPO,
         baseMainSha: mainSha,
@@ -631,7 +628,7 @@ const controlServer = createServer(async (request, response) => {
           artifactDigest,
           sourceMainSha: mainSha,
           base: true,
-          restartStrategies: true,
+          restartFeatureFlags: true,
           bootstrappedAt: new Date().toISOString(),
         });
       }
@@ -681,7 +678,7 @@ const controlServer = createServer(async (request, response) => {
       if (!existsSync(manifest)) {
         clearDirectory(destination);
         archiveRef(mainSha, destination);
-        validateStrategyArtifact(destination);
+        validateFeatureFlagArtifact(destination);
         writeFileSync(manifest, JSON.stringify({
           candidateId: undefined,
           batchId: undefined,
@@ -697,7 +694,7 @@ const controlServer = createServer(async (request, response) => {
         }, null, 2) + '\n', 'utf8');
       }
 
-      validateStrategyArtifact(destination);
+      validateFeatureFlagArtifact(destination);
 
       const metadata = {
         artifactDigest,
@@ -722,7 +719,7 @@ const controlServer = createServer(async (request, response) => {
           artifactDigest,
           sourceMainSha: mainSha,
           base: true,
-          restartStrategies: true,
+          restartFeatureFlags: true,
           bootstrappedAt: metadata.bootstrappedAt,
         });
       }
@@ -774,7 +771,7 @@ const controlServer = createServer(async (request, response) => {
       if (!existsSync(manifest)) {
         clearDirectory(destination);
         archiveRef(mainSha, destination);
-        validateStrategyArtifact(destination);
+        validateFeatureFlagArtifact(destination);
         writeFileSync(manifest, JSON.stringify({
           candidateId: undefined,
           batchId: undefined,
@@ -790,7 +787,7 @@ const controlServer = createServer(async (request, response) => {
         }, null, 2) + '\n', 'utf8');
       }
 
-      validateStrategyArtifact(destination);
+      validateFeatureFlagArtifact(destination);
 
       return json(response, 200, {
         integrationSha: mainSha,
@@ -892,7 +889,7 @@ const controlServer = createServer(async (request, response) => {
         build: String(body.build ?? 'demo-' + manifest.integrationSha.slice(0, 12)),
         artifactDigest,
         demoSeed: true,
-        restartStrategies: Boolean(body.resetStrategies),
+        restartFeatureFlags: Boolean(body.resetStrategies),
       });
       return json(response, 200, {
         ok: true,
@@ -994,7 +991,7 @@ const controlServer = createServer(async (request, response) => {
         environment: 'HMG',
         ...originBuild,
         reset: true,
-        restartStrategies: true,
+        restartFeatureFlags: true,
         resetAt: new Date().toISOString(),
       });
       writeOriginBuild(originBuild);
@@ -1025,7 +1022,7 @@ const controlServer = createServer(async (request, response) => {
         build: 'restore-' + releaseId,
         artifactDigest,
         artifactReleaseId: releaseId,
-        ...(releaseId === 'base-main' ? { base: true, restartStrategies: true } : {}),
+        ...(releaseId === 'base-main' ? { base: true, restartFeatureFlags: true } : {}),
         restoredAt,
       });
 
@@ -1116,7 +1113,7 @@ const controlServer = createServer(async (request, response) => {
 
       clearDirectory(destination);
       archiveRef(sourceSha, destination);
-      validateStrategyArtifact(destination);
+      validateFeatureFlagArtifact(destination);
       writeFileSync(manifest, JSON.stringify({
         candidateId: undefined,
         batchId: undefined,
@@ -1150,36 +1147,21 @@ const controlServer = createServer(async (request, response) => {
       });
     }
 
-    if (request.method === 'GET' && request.url === '/deployforge-strategy-runtime.json') {
+    if (request.method === 'GET' && request.url === '/deployforge-feature-flags-runtime.json') {
       const environmentName = runtimeEnvironmentName(environment);
       const artifactDigest = activeArtifactDigest(environmentName);
-      if (!artifactDigest) {
-        return json(response, 404, { error: 'No immutable artifact is active in this environment' });
-      }
-
-      const manifest = readArtifactStrategyManifest(artifactDigest);
-      const persisted = readStrategySelections(environmentName);
-      const strategies = manifest.strategies.map((strategy) => ({
-        id: strategy.id,
-        kind: strategy.kind,
-        selectedImplementation: strategy.kind === 'flag'
-          ? undefined
-          : persisted[strategy.id] ?? strategy.defaultImplementation,
-        flagEnabled: strategy.kind === 'flag'
-          ? (persisted[strategy.id] ?? strategy.defaultImplementation) === 'enabled'
-          : undefined,
-        availableImplementationIds: strategy.kind === 'flag' ? [] : strategy.implementations,
-        defaultImplementation: strategy.defaultImplementation,
+      if (!artifactDigest) return json(response, 404, { error: 'No immutable artifact is active in this environment' });
+      const manifest = readArtifactFeatureFlagManifest(artifactDigest);
+      const persisted = readFeatureFlagSelections(environmentName);
+      const featureFlags = manifest.featureFlags.map((featureFlag) => ({
+        id: featureFlag.id,
+        selectedValue: persisted[featureFlag.id] ?? featureFlag.defaultValue,
+        availableValues: featureFlag.values,
+        defaultValue: featureFlag.defaultValue,
       }));
-
-      return json(response, 200, {
-        environment: environmentName,
-        artifactDigest,
-        strategies,
-      });
+      return json(response, 200, { environment: environmentName, artifactDigest, featureFlags });
     }
-
-    if (request.method === 'POST' && request.url === '/strategies/manifest') {
+    if (request.method === 'POST' && request.url === '/feature-flags/manifest') {
       const body = await parseBody(request);
       const environment = body.environment === 'hmg' ? 'hmg' : body.environment === 'production' ? 'prod' : undefined;
       if (!environment) return json(response, 400, { error: 'environment must be hmg or production' });
@@ -1191,85 +1173,57 @@ const controlServer = createServer(async (request, response) => {
         return json(response, 409, { error: 'Requested artifact is not materialized locally' });
       }
 
-      const manifest = readArtifactStrategyManifest(requestedDigest);
-      const persisted = readStrategySelections(environment);
-
-      return json(response, 200, {
-        environment: body.environment,
-        artifactDigest: requestedDigest,
-        manifest,
-        selections: persisted,
-      });
+      const manifest = readArtifactFeatureFlagManifest(requestedDigest);
+      const persisted = readFeatureFlagSelections(environment);
+      return json(response, 200, { environment: body.environment, artifactDigest: requestedDigest, manifest, selections: persisted });
     }
-
-    if (request.method === 'POST' && request.url === '/strategies/switch') {
+    if (request.method === 'POST' && request.url === '/feature-flags/select') {
       const body = await parseBody(request);
       const environment = body.environment === 'hmg' ? 'hmg' : body.environment === 'production' ? 'prod' : undefined;
-      const strategyId = typeof body.strategyId === 'string' ? body.strategyId.trim() : '';
-      const implementationId = typeof body.implementationId === 'string' ? body.implementationId.trim() : '';
+      const featureFlagId = typeof body.featureFlagId === 'string' ? body.featureFlagId.trim() : '';
+      const selectedValue = typeof body.selectedValue === 'string' ? body.selectedValue.trim() : '';
       const artifactDigest = typeof body.artifactDigest === 'string' ? body.artifactDigest : '';
-
-      if (!environment || !strategyId || !implementationId || !artifactDigest) {
-        return json(response, 400, { error: 'environment, strategyId, implementationId and artifactDigest are required' });
+      if (!environment || !featureFlagId || !selectedValue || !artifactDigest) {
+        return json(response, 400, { error: 'environment, featureFlagId, selectedValue and artifactDigest are required' });
       }
 
       const activeDigest = activeArtifactDigest(environment);
       if (artifactDigest !== activeDigest) {
         return json(response, 409, {
-          error: 'Active ' + environment.toUpperCase() + ' artifact changed; refresh DeployForge before changing the strategy',
+          error: 'Active ' + environment.toUpperCase() + ' artifact changed; refresh DeployForge before changing the Feature Flag',
           activeArtifactDigest: activeDigest,
         });
       }
 
-      const runtime = await strategyRuntimeFor(environment);
-      const result = await runtime.deployStrategy.switchTo(runtime.container, strategyId, implementationId, {
-        environment: body.environment,
-        artifactDigest,
-        actor: typeof body.actor === 'string' ? body.actor : 'deployforge',
-      });
-      writeStrategySelections(environment, runtime.deployStrategy.selections());
+      const runtime = await featureFlagRuntimeFor(environment);
+      const definition = runtime.manifest.featureFlags.find((item) => item.id === featureFlagId);
+      if (!definition) return json(response, 404, { error: 'Feature Flag "' + featureFlagId + '" is not present in the active artifact' });
+      if (!definition.values.includes(selectedValue)) {
+        return json(response, 409, {
+          error: 'Feature Flag "' + featureFlagId + '" does not contain value "' + selectedValue + '"',
+          availableValues: definition.values,
+        });
+      }
+
+      const previousValue = runtime.featureSelections[featureFlagId] ?? definition.defaultValue;
+      const changed = previousValue !== selectedValue;
+      runtime.featureSelections[featureFlagId] = selectedValue;
+      writeFeatureFlagSelections(environment, runtime.featureSelections);
 
       const order = runtime.container.resolve('orderService').checkout();
       return json(response, 200, {
         environment: body.environment,
         artifactDigest,
-        ...result,
-        selections: runtime.deployStrategy.selections(),
-        flags: [...runtime.deployStrategy.manifest().strategies]
-          .filter((definition) => definition.kind === 'flag')
-          .reduce((acc, definition) => {
-            acc[definition.id] = runtime.deployStrategy.isEnabled(definition.id);
-            return acc;
-          }, {}),
+        featureFlagId,
+        previousValue,
+        selectedValue,
+        availableValues: definition.values,
+        changed,
+        selections: { ...runtime.featureSelections },
         order,
       });
     }
-
-    if (request.method === 'POST' && request.url === '/strategies/compensate') {
-      const body = await parseBody(request);
-      const environment = body.environment === 'hmg' ? 'hmg' : body.environment === 'production' ? 'prod' : undefined;
-      const strategyId = typeof body.strategyId === 'string' ? body.strategyId.trim() : '';
-      const implementationId = typeof body.implementationId === 'string' ? body.implementationId.trim() : '';
-      const artifactDigest = typeof body.artifactDigest === 'string' ? body.artifactDigest : '';
-
-      if (!environment || !strategyId || !implementationId || !artifactDigest) {
-        return json(response, 400, { error: 'environment, strategyId, implementationId and artifactDigest are required' });
-      }
-
-      const activeDigest = activeArtifactDigest(environment);
-      if (artifactDigest !== activeDigest) {
-        return json(response, 409, { error: 'Active artifact changed; refresh DeployForge before compensating the strategy' });
-      }
-
-      const runtime = await strategyRuntimeFor(environment);
-      const result = await runtime.deployStrategy.compensate(strategyId, implementationId, {
-        environment: body.environment,
-        artifactDigest,
-        actor: typeof body.actor === 'string' ? body.actor : 'deployforge',
-      });
-      return json(response, 200, result);
-    }
-
+    
     if (request.method === 'POST' && request.url === '/hmg/ready') {
       const body = await parseBody(request);
       const healthy = existsSync(join(environments.hmg.root, 'deployforge-runtime.json'));
@@ -1372,7 +1326,7 @@ const controlServer = createServer(async (request, response) => {
         version: manifest.integrationSha.slice(0, 12),
         build: releaseBuild,
         artifactDigest: body.artifactDigest,
-        ...(body.releaseId === 'base-main' ? { base: true, restartStrategies: true } : {}),
+        ...(body.releaseId === 'base-main' ? { base: true, restartFeatureFlags: true } : {}),
       });
 
       const currentDevDigest = activeArtifactDigest('dev');
@@ -1412,36 +1366,22 @@ const staticServer = (environment, port) => createServer((request, response) => 
   try {
     const pathname = decodeURIComponent((request.url ?? '/').split('?')[0]);
 
-    if (request.method === 'GET' && pathname === '/deployforge-strategy-runtime.json') {
+    if (request.method === 'GET' && pathname === '/deployforge-feature-flags-runtime.json') {
       const environmentName = runtimeEnvironmentName(environment);
       const artifactDigest = activeArtifactDigest(environmentName);
-      if (!artifactDigest) {
-        json(response, 404, { error: 'No immutable artifact is active in this environment' });
-        return;
-      }
-
-      const manifest = readArtifactStrategyManifest(artifactDigest);
-      const persisted = readStrategySelections(environmentName);
-      const strategies = manifest.strategies.map((strategy) => ({
-        id: strategy.id,
-        kind: strategy.kind,
-        selectedImplementation: strategy.kind === 'flag'
-          ? undefined
-          : persisted[strategy.id] ?? strategy.defaultImplementation,
-        flagEnabled: strategy.kind === 'flag'
-          ? (persisted[strategy.id] ?? strategy.defaultImplementation) === 'enabled'
-          : undefined,
-        availableImplementationIds: strategy.kind === 'flag' ? [] : strategy.implementations,
-        defaultImplementation: strategy.defaultImplementation,
+      if (!artifactDigest) { json(response, 404, { error: 'No immutable artifact is active in this environment' }); return; }
+      const manifest = readArtifactFeatureFlagManifest(artifactDigest);
+      const persisted = readFeatureFlagSelections(environmentName);
+      const featureFlags = manifest.featureFlags.map((featureFlag) => ({
+        id: featureFlag.id,
+        selectedValue: persisted[featureFlag.id] ?? featureFlag.defaultValue,
+        availableValues: featureFlag.values,
+        defaultValue: featureFlag.defaultValue,
       }));
-
-      json(response, 200, {
-        environment: environmentName,
-        artifactDigest,
-        strategies,
-      });
+      json(response, 200, { environment: environmentName, artifactDigest, featureFlags });
       return;
     }
+
 
     const requested = pathname === '/' ? '/index.html' : pathname;
     const file = resolve(environment.root, '.' + normalize(requested));
