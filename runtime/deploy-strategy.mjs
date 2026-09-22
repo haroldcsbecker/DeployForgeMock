@@ -210,6 +210,10 @@ export class DeployStrategy {
     return isClass(implementation) ? asClass(implementation) : asFunction(implementation);
   }
 
+  #implementationRegistrationName(definition, implementationId) {
+    return '__deployforge_' + kebabCase(definition.id) + '_' + kebabCase(implementationId);
+  }
+
   #install(container, definition, implementationId) {
     const registrationName = definition.registration;
     if (!this.previousResolvers.has(registrationName)) {
@@ -219,7 +223,20 @@ export class DeployStrategy {
       }
       if (existing) this.previousResolvers.set(registrationName, existing);
     }
-    container.register({ [registrationName]: this.#resolver(definition, implementationId) });
+
+    for (const candidate of definition.implementations) {
+      const hiddenName = this.#implementationRegistrationName(definition, candidate.id);
+      if (!container.registrations[hiddenName]) {
+        container.register({ [hiddenName]: this.#resolver(definition, candidate.id) });
+      }
+    }
+
+    container.register({
+      [registrationName]: asFunction(() => {
+        const selected = this.selected.get(definition.id) ?? implementationId;
+        return container.resolve(this.#implementationRegistrationName(definition, selected));
+      }).singleton(),
+    });
   }
 
   async attach(container, { selectionByStrategy = {}, environment = 'unknown', artifactDigest = '' } = {}) {
@@ -257,13 +274,10 @@ export class DeployStrategy {
     try {
       await definition.lifecycle?.beforeDeactivate?.(switchContext);
       await definition.lifecycle?.afterDeactivate?.(switchContext);
-      await definition.lifecycle?.beforeActivate?.(switchContext);
-      this.#install(container, definition, implementationId);
-      await definition.lifecycle?.afterActivate?.(switchContext);
       this.selected.set(strategyId, implementationId);
+      await definition.lifecycle?.beforeActivate?.(switchContext);
+      await definition.lifecycle?.afterActivate?.(switchContext);
     } catch (error) {
-      const previousResolver = this.previousResolvers.get(definition.registration);
-      if (previousResolver) container.register({ [definition.registration]: previousResolver });
       this.selected.set(strategyId, previous);
       throw error;
     }
