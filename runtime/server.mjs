@@ -145,6 +145,17 @@ const clearDirectory = (directory) => {
   mkdirSync(directory, { recursive: true });
 };
 
+const cleanDemoState = () => {
+  Object.values(environments).forEach(({ root }) => clearDirectory(root));
+  clearDirectory(ARTIFACT_ROOT);
+  rmSync(originBuildPath, { force: true });
+  rmSync(stablePackagePath, { force: true });
+  rmSync(dirtyPackageTagsPath, { force: true });
+  Object.keys(environments).forEach((environmentName) => rmSync(strategyStatePath(environmentName), { force: true }));
+  strategyRuntimeCache.clear();
+};
+
+
 const writeRuntimeMetadata = (directory, metadata) => {
   writeFileSync(join(directory, 'deployforge-runtime.json'), JSON.stringify(metadata, null, 2) + '\n', 'utf8');
 };
@@ -438,6 +449,11 @@ const parseBody = async (request) => {
 
 const controlServer = createServer(async (request, response) => {
   try {
+    if (request.method === 'POST' && request.url === '/demo/clean') {
+      cleanDemoState();
+      return json(response, 200, { ok: true, cleaned: true });
+    }
+
     if (request.method === 'POST' && request.url === '/deploy/base') {
       const body = await parseBody(request);
       const repository = String(body.repository ?? REPO);
@@ -1172,24 +1188,8 @@ runGit(['fetch', 'origin', BASE_BRANCH]);
 syncDevProject();
 startDevSync();
 
-for (const [name, environment] of Object.entries(environments)) {
-  if (name !== 'dev' && !existsSync(join(environment.root, 'index.html'))) {
-    clearDirectory(environment.root);
-    archiveRef('origin/' + BASE_BRANCH, environment.root);
-    const startupMainSha = runGit(['rev-parse', 'origin/' + BASE_BRANCH]);
-    const startupArtifactDigest = 'sha256:' + createHash('sha256')
-      .update(JSON.stringify({ type: 'base', repository: REPO, mainSha: startupMainSha }))
-      .digest('hex');
-    writeRuntimeMetadata(environment.root, {
-      environment: name.toUpperCase(),
-      feature: name === 'hmg' ? 'Main branch' : 'Last production baseline',
-      version: startupMainSha.slice(0, 12),
-      build: 'main',
-      artifactDigest: startupArtifactDigest,
-      sourceMainSha: startupMainSha,
-    });
-  }
-}
+// HMG and PROD intentionally start empty. Bootstrap the immutable BASE explicitly with
+// npm run demo:bootstrap-base after a clean start.
 
 Object.entries(environments).forEach(([name, environment]) => {
   staticServer(environment, environment.port).listen(environment.port, '127.0.0.1', () => {
