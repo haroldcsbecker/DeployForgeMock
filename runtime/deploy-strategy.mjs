@@ -233,7 +233,8 @@ export class DeployStrategy {
 
     container.register({
       [registrationName]: asFunction(() => {
-        const proxy = new Proxy({}, {
+        const initial = container.resolve(this.#implementationRegistrationName(definition, implementationId));
+        return new Proxy(initial, {
           get: (_target, property) => {
             const selected = this.selected.get(definition.id) ?? implementationId;
             const implementation = container.resolve(this.#implementationRegistrationName(definition, selected));
@@ -246,7 +247,6 @@ export class DeployStrategy {
             return Reflect.set(implementation, property, value);
           },
         });
-        return proxy;
       }).singleton(),
     });
   }
