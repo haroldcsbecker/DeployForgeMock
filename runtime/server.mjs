@@ -502,7 +502,7 @@ const controlServer = createServer(async (request, response) => {
         immutable: true,
         source: 'main',
         createdAt: new Date().toISOString(),
-      }, null, 2) + '\\n', 'utf8');
+      }, null, 2) + '\n', 'utf8');
 
       for (const [name, environment] of Object.entries(environments)) {
         installArtifact(artifactDigest, environment, {
