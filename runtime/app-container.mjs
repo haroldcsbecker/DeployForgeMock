@@ -31,6 +31,16 @@ const assertManifestMatchesRegistry = (manifest, registry) => {
           '" default mismatch between application and manifest',
       );
     }
+
+    if (!definition.values.includes(flag.value)) {
+      throw new Error(
+        'Persisted Feature Flag selection "' +
+          definition.id +
+          '=' +
+          flag.value +
+          '" is not available in the active artifact',
+      );
+    }
   }
 };
 
