@@ -48,32 +48,6 @@
         "optimized": "Optimized payment processor used for the performance-focused version.",
         "async": "Asynchronous payment processor used for the non-blocking processing version."
       }
-    },
-    {
-      "id": "order-routing",
-      "registration": "orderRouter",
-      "implementations": [
-        "legacy",
-        "rules",
-        "optimized",
-        "async",
-        "experiment"
-      ],
-      "defaultImplementation": "legacy",
-      "dependsOn": [],
-      "lifecycle": false,
-      "rollback": false,
-      "projectRepository": "https://github.com/haroldcsbecker/DeployForgeMock",
-      "sourcePath": "runtime/strategies/order-routing.mjs",
-      "description": "Controls the routing implementation used to dispatch orders.",
-      "rollbackDescription": "Changing or rolling back the artifact restores the selected routing implementation. This flag has no external compensation handler.",
-      "implementationDescriptions": {
-        "legacy": "Legacy order routing path.",
-        "rules": "Rules-based routing path.",
-        "optimized": "Optimized routing path for the standard traffic pattern.",
-        "async": "Asynchronous routing path for non-blocking dispatch.",
-        "experiment": "Experimental routing path used for controlled validation."
-      }
     }
   ]
 }
