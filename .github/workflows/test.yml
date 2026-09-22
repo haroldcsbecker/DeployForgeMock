@@ -19,7 +19,7 @@ jobs:
       - run: npm install
       - id: tests
         run: npm test
-      - run: npm run strategy:validate
+      - run: npm run feature-flag:validate
       - name: Publish DeployForge CI status
         if: always() && github.event_name == 'pull_request'
         env:
