@@ -233,8 +233,20 @@ export class DeployStrategy {
 
     container.register({
       [registrationName]: asFunction(() => {
-        const selected = this.selected.get(definition.id) ?? implementationId;
-        return container.resolve(this.#implementationRegistrationName(definition, selected));
+        const proxy = new Proxy({}, {
+          get: (_target, property) => {
+            const selected = this.selected.get(definition.id) ?? implementationId;
+            const implementation = container.resolve(this.#implementationRegistrationName(definition, selected));
+            const value = Reflect.get(implementation, property, implementation);
+            return typeof value === 'function' ? value.bind(implementation) : value;
+          },
+          set: (_target, property, value) => {
+            const selected = this.selected.get(definition.id) ?? implementationId;
+            const implementation = container.resolve(this.#implementationRegistrationName(definition, selected));
+            return Reflect.set(implementation, property, value);
+          },
+        });
+        return proxy;
       }).singleton(),
     });
   }
