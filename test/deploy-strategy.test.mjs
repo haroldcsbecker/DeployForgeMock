@@ -100,13 +100,13 @@ test('executes implementation-specific compensation independently from switching
   assert.match(result.details, /new payment compensation/);
 });
 
-test('resolves consumers with the active strategy after a switch', async () => {
+test('updates singleton consumers after a strategy switch', async () => {
   const strategy = createDeployStrategy();
   const container = createContainer({ strict: true });
   container.register({
     logger: asValue({ events: [] }),
     database: asValue({ name: 'db' }),
-    orderService: asClass(OrderService),
+    orderService: asClass(OrderService).singleton(),
   });
 
   await strategy.attach(container);
