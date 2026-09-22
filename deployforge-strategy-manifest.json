@@ -6,7 +6,10 @@
       "registration": "fraudStrategy",
       "implementations": [
         "legacy",
-        "rule-based"
+        "rule-based",
+        "ml",
+        "shadow",
+        "adaptive"
       ],
       "defaultImplementation": "legacy",
       "dependsOn": [],
@@ -18,7 +21,10 @@
       "rollbackDescription": "Switching or rolling back the artifact restores the implementation selected by the target artifact. No external compensation handler is required for the fraud strategy.",
       "implementationDescriptions": {
         "legacy": "Legacy fraud evaluation path.",
-        "rule-based": "Rule-based fraud evaluation path."
+        "rule-based": "Rule-based fraud evaluation path.",
+        "ml": "Machine-learning fraud evaluation path.",
+        "shadow": "Shadow fraud evaluation path used for non-blocking validation.",
+        "adaptive": "Adaptive fraud evaluation path that selects behavior from runtime signals."
       }
     },
     {

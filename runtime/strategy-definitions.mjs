@@ -1,6 +1,6 @@
 import { DeployStrategy } from './deploy-strategy.mjs';
 import { CanaryPaymentProcessor, LegacyPaymentProcessor, NewPaymentProcessor } from './strategies/payment-processor.mjs';
-import { FraudLegacy, FraudRules } from './strategies/fraud-strategy.mjs';
+import { FraudAdaptive, FraudLegacy, FraudMl, FraudRules, FraudShadow } from './strategies/fraud-strategy.mjs';
 
 export function createDeployStrategy() {
   const strategy = new DeployStrategy();
@@ -11,6 +11,9 @@ export function createDeployStrategy() {
       .switchBetween(
         { id: 'legacy', implementation: FraudLegacy },
         { id: 'rule-based', implementation: FraudRules },
+        { id: 'ml', implementation: FraudMl },
+        { id: 'shadow', implementation: FraudShadow },
+        { id: 'adaptive', implementation: FraudAdaptive },
       ),
     {
       registration: 'fraudStrategy',
@@ -21,6 +24,9 @@ export function createDeployStrategy() {
       implementationDescriptions: {
         legacy: 'Legacy fraud evaluation path.',
         'rule-based': 'Rule-based fraud evaluation path.',
+        ml: 'Machine-learning fraud evaluation path.',
+        shadow: 'Shadow fraud evaluation path used for non-blocking validation.',
+        adaptive: 'Adaptive fraud evaluation path that selects behavior from runtime signals.',
       },
     },
   );
