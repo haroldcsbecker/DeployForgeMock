@@ -3,13 +3,10 @@
   "featureFlags": [
     {
       "id": "fraud-mode",
-      "values": [
-        "legacy",
-        "rule-based"
-      ],
+      "values": ["legacy", "rule-based"],
       "defaultValue": "legacy",
       "projectRepository": "https://github.com/haroldcsbecker/DeployForgeMock",
-      "sourcePath": "runtime/strategies/fraud-strategy.mjs",
+      "sourcePath": "runtime/implementations/fraud.mjs",
       "description": "Selects the fraud evaluation implementation used by checkout.",
       "implementationDescriptions": {
         "legacy": "Legacy fraud evaluation path.",
@@ -18,10 +15,7 @@
     },
     {
       "id": "checkout-mode",
-      "values": [
-        "legacy",
-        "new"
-      ],
+      "values": ["legacy", "new"],
       "defaultValue": "legacy",
       "projectRepository": "https://github.com/haroldcsbecker/DeployForgeMock",
       "sourcePath": "index.html",
@@ -33,14 +27,10 @@
     },
     {
       "id": "payment-mode",
-      "values": [
-        "legacy",
-        "new",
-        "canary"
-      ],
+      "values": ["legacy", "new", "canary"],
       "defaultValue": "legacy",
       "projectRepository": "https://github.com/haroldcsbecker/DeployForgeMock",
-      "sourcePath": "runtime/strategies/payment-processor.mjs",
+      "sourcePath": "runtime/implementations/payment-processors.mjs",
       "description": "Selects the payment processor implementation used by checkout.",
       "implementationDescriptions": {
         "legacy": "Legacy payment processor.",
