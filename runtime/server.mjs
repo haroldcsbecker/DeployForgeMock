@@ -253,7 +253,7 @@ const startDevSync = () => {
     watch(REPO, { recursive: true }, (_eventType, filename) => {
       if (!filename) return;
       const path = String(filename);
-      if (path.split(/[\\/]/).some((part) => DEV_EXCLUDED.has(part))) return;
+      if (path.split(/[\\/]/).some((part) => localDevExcluded.has(part))) return;
       schedule();
     });
   } catch (error) {
