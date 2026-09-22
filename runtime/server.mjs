@@ -196,7 +196,7 @@ const readHmgRuntimeMetadata = () => {
 
 const resolveOriginBuild = () => readOriginBuild() ?? readHmgRuntimeMetadata() ?? findLatestArtifact();
 
-const localDevExcluded = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees']);
+const localDevExcluded = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees', '.env', '.env.local', '.env.development', '.env.production', '.env.test']);
 
 const localDevFingerprint = () => [
   runGit(['rev-parse', 'HEAD']),
