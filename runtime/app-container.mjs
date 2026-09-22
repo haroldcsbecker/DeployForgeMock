@@ -20,15 +20,20 @@ export async function createApplicationRuntime({ environmentRoot, environment, a
   const strategyModule = await import(moduleUrl(environmentRoot, artifactDigest));
   const deployStrategy = strategyModule.createDeployStrategy();
   const definitions = deployStrategy.manifest().strategies;
-  const validSelections = Object.fromEntries(
-    Object.entries(selections).filter(([strategyId, implementationId]) =>
-      definitions.some((definition) =>
-        definition.id === strategyId && definition.implementations.includes(implementationId),
-      ),
+  const invalidSelections = Object.entries(selections).filter(([strategyId, implementationId]) =>
+    !definitions.some((definition) =>
+      definition.id === strategyId && definition.implementations.includes(implementationId),
     ),
   );
+  if (invalidSelections.length) {
+    throw new Error(
+      'Persisted Feature Flag selection is not available in artifact: ' +
+      invalidSelections.map(([strategyId, implementationId]) => strategyId + '=' + implementationId).join(', '),
+    );
+  }
+
   await deployStrategy.attach(container, {
-    selectionByStrategy: validSelections,
+    selectionByStrategy: selections,
     environment,
     artifactDigest,
   });
