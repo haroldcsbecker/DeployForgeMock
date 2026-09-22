@@ -207,7 +207,7 @@ export class DeployStrategy {
   #resolver(definition, implementationId) {
     const implementation = definition.implementations.find((item) => item.id === implementationId)?.implementation;
     if (!implementation) throw new Error('Unknown implementation "' + implementationId + '" for strategy "' + definition.id + '"');
-    return isClass(implementation) ? asClass(implementation) : asFunction(implementation);
+    return isClass(implementation) ? asClass(implementation).singleton() : asFunction(implementation).singleton();
   }
 
   #implementationRegistrationName(definition, implementationId) {
