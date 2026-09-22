@@ -26,6 +26,19 @@ export function createDeployStrategy() {
   );
 
   strategy.register(
+    'new-checkout',
+    strategy
+      .flag(false),
+    {
+      registration: 'newCheckoutEnabled',
+      projectRepository: 'https://github.com/haroldcsbecker/DeployForgeMock',
+      sourcePath: 'runtime/strategy-definitions.mjs',
+      description: 'Enables the new checkout flow when explicitly turned on.',
+      rollbackDescription: 'Disable the flag to return the runtime to the existing checkout flow.',
+    },
+  );
+
+  strategy.register(
     'payment-processor',
     strategy
       .switchBetween(

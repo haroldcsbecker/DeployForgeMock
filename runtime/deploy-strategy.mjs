@@ -23,7 +23,7 @@ const resolveImplementation = (implementations, value) => {
 
 export class StrategyBuilder {
   constructor(implementations) {
-    if (implementations.length < 1) throw new Error('A strategy needs at least one implementation');
+
     const ids = new Set();
     this.implementations = implementations.map((item) => {
       const normalized = typeof item === 'function'
@@ -34,6 +34,7 @@ export class StrategyBuilder {
       ids.add(normalized.id);
       return normalized;
     });
+    this.kind = 'switch';
     this.defaultImplementation = undefined;
     this.lifecycle = {};
     this.rollback = {};
@@ -42,7 +43,17 @@ export class StrategyBuilder {
   }
 
   default(value) {
+    if (this.kind === 'flag') {
+      throw new Error('Feature flags use .flag(defaultEnabled) instead of .default()');
+    }
     this.defaultImplementation = resolveImplementation(this.implementations, value);
+    return this;
+  }
+
+  flag(defaultEnabled = false) {
+    if (this.implementations.length) throw new Error('A feature flag cannot define implementations');
+    this.kind = 'flag';
+    this.defaultImplementation = defaultEnabled ? 'enabled' : 'disabled';
     return this;
   }
 
@@ -67,19 +78,28 @@ export class StrategyBuilder {
   }
 
   definition(id, registration = id, metadata = {}) {
+    if (this.kind === 'switch' && this.implementations.length < 1) {
+      throw new Error('A Feature Switch needs at least one implementation');
+    }
     return {
       id,
+      kind: this.kind,
       registration,
       projectRepository: metadata.projectRepository ?? '',
       sourcePath: metadata.sourcePath ?? '',
       description: metadata.description ?? '',
       rollbackDescription: metadata.rollbackDescription ?? '',
       implementationDescriptions: { ...(metadata.implementationDescriptions ?? {}) },
-      implementations: this.implementations.map(({ id: implementationId, implementation }) => ({
-        id: implementationId,
-        implementation,
-      })),
-      defaultImplementation: this.defaultImplementation ?? this.implementations[0].id,
+      implementations: this.kind === 'flag'
+        ? [
+            { id: 'disabled', implementation: undefined },
+            { id: 'enabled', implementation: undefined },
+          ]
+        : this.implementations.map(({ id: implementationId, implementation }) => ({
+            id: implementationId,
+            implementation,
+          })),
+      defaultImplementation: this.defaultImplementation ?? (this.kind === 'flag' ? 'disabled' : this.implementations[0].id),
       lifecycle: this.lifecycle,
       rollback: this.rollback,
       dependsOn: [...this.dependencies],
@@ -93,13 +113,16 @@ export function validateStrategyGraph(definitions, selections = {}) {
   const byId = new Map(definitions.map((definition) => [definition.id, definition]));
 
   for (const definition of definitions) {
-    const implementationIds = new Set(definition.implementations.map((item) => item.id));
-    if (!implementationIds.has(definition.defaultImplementation)) {
+    const implementationIds = new Set(definition.kind === 'flag' ? ['disabled', 'enabled'] : definition.implementations.map((item) => item.id));
+    if (definition.kind === 'flag' && !['disabled', 'enabled'].includes(definition.defaultImplementation)) {
+      errors.push('Feature Flag "' + definition.id + '" has an invalid default value');
+    }
+    if (definition.kind !== 'flag' && !implementationIds.has(definition.defaultImplementation)) {
       errors.push('Strategy "' + definition.id + '" has an invalid default implementation');
     }
 
     const selected = selections[definition.id];
-    if (selected && !implementationIds.has(selected)) {
+    if (definition.kind !== 'flag' && selected && !implementationIds.has(selected)) {
       errors.push('Strategy "' + definition.id + '" selected a missing implementation "' + selected + '"');
     }
 
@@ -139,7 +162,7 @@ export function validateStrategyGraph(definitions, selections = {}) {
         errors.push('Strategy "' + definition.id + '" is incompatible with selected implementation of "' + dependency + '"');
       }
     }
-    if (!definition.implementations.some((item) => item.id === selected)) {
+    if (definition.kind !== 'flag' && !definition.implementations.some((item) => item.id === selected)) {
       errors.push('Strategy "' + definition.id + '" selected a missing implementation "' + selected + '"');
     }
   }
@@ -157,6 +180,10 @@ export class DeployStrategy {
 
   switchBetween(...implementations) {
     return new StrategyBuilder(implementations);
+  }
+
+  flag(defaultEnabled = false) {
+    return new StrategyBuilder([]).flag(defaultEnabled);
   }
 
   register(strategyId, builder, options = {}) {
@@ -184,6 +211,7 @@ export class DeployStrategy {
         implementations: definition.implementations.map((item) => item.id),
         defaultImplementation: definition.defaultImplementation,
         dependsOn: [...definition.dependsOn],
+        kind: definition.kind,
         lifecycle: Object.keys(definition.lifecycle ?? {}).length > 0,
         rollback: Object.keys(definition.rollback ?? {}).length > 0,
         projectRepository: definition.projectRepository,
@@ -255,7 +283,7 @@ export class DeployStrategy {
     this.validate(selectionByStrategy);
     for (const definition of this.definitions.values()) {
       const selected = selectionByStrategy[definition.id] ?? definition.defaultImplementation;
-      this.#install(container, definition, selected);
+      if (definition.kind !== 'flag') this.#install(container, definition, selected);
       this.selected.set(definition.id, selected);
       await definition.lifecycle?.afterActivate?.({
         strategyId: definition.id,
@@ -270,6 +298,12 @@ export class DeployStrategy {
 
   async switchTo(container, strategyId, implementationId, context = {}) {
     const definition = this.getDefinition(strategyId);
+    if (definition.kind === 'flag') {
+      if (implementationId !== 'enabled' && implementationId !== 'disabled') {
+        throw new Error('Feature Flag value must be enabled or disabled');
+      }
+      return this.setFlag(strategyId, implementationId === 'enabled', context);
+    }
     this.validate({ ...this.selections(), [strategyId]: implementationId });
     const previous = this.selected.get(strategyId) ?? definition.defaultImplementation;
     if (previous === implementationId) {
@@ -295,6 +329,34 @@ export class DeployStrategy {
     }
 
     return { strategyId, previousImplementation: previous, implementationId, changed: true };
+  }
+
+  isEnabled(strategyId) {
+    const definition = this.getDefinition(strategyId);
+    if (definition.kind !== 'flag') throw new Error('Strategy "' + strategyId + '" is a Feature Switch');
+    return (this.selected.get(strategyId) ?? definition.defaultImplementation) === 'enabled';
+  }
+
+  async setFlag(strategyId, enabled, context = {}) {
+    const definition = this.getDefinition(strategyId);
+    if (definition.kind !== 'flag') throw new Error('Strategy "' + strategyId + '" is a Feature Switch');
+    const previous = (this.selected.get(strategyId) ?? definition.defaultImplementation) === 'enabled';
+    if (previous === enabled) return { strategyId, previousEnabled: previous, enabled, changed: false };
+    const nextValue = enabled ? 'enabled' : 'disabled';
+    const switchContext = { ...context, strategyId, fromValue: previous, toValue: enabled };
+    try {
+      await definition.lifecycle?.beforeDeactivate?.(switchContext);
+      this.selected.set(strategyId, nextValue);
+      await definition.lifecycle?.afterActivate?.(switchContext);
+    } catch (error) {
+      this.selected.set(strategyId, previous ? 'enabled' : 'disabled');
+      throw error;
+    }
+    return { strategyId, previousEnabled: previous, enabled, changed: true };
+  }
+
+  values() {
+    return this.selections();
   }
 
   async compensate(strategyId, implementationId, context = {}) {
