@@ -198,28 +198,46 @@ const resolveOriginBuild = () => readOriginBuild() ?? readHmgRuntimeMetadata() ?
 
 const DEV_EXCLUDED = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees']);
 
-const syncDevProject = () => {
-  // DEV always represents the latest remote main, never the local checkout.
-  // Fetch first because production/QA merges happen through GitHub and may not
-  // exist in the long-running local worktree yet.
-  runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
-  const mainRef = 'origin/' + BASE_BRANCH;
-  const mainSha = runGit(['rev-parse', mainRef]);
-  const current = readRuntimeMetadataFor('dev');
+const localDevExcluded = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees']);
 
-  if (current?.sourceMainSha === mainSha && existsSync(join(environments.dev.root, 'index.html'))) {
-    return;
+const localDevFingerprint = () => [
+  runGit(['rev-parse', 'HEAD']),
+  runGit(['status', '--porcelain=v1']),
+].join('\\n');
+
+const copyLocalProject = (source, destination) => {
+  clearDirectory(destination);
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (localDevExcluded.has(entry.name)) continue;
+    const sourcePath = join(source, entry.name);
+    const destinationPath = join(destination, entry.name);
+    if (entry.isDirectory()) copyLocalProject(sourcePath, destinationPath);
+    else {
+      mkdirSync(resolve(destinationPath, '..'), { recursive: true });
+      cpSync(sourcePath, destinationPath);
+    }
   }
+};
 
-  installGitRef(mainRef, environments.dev, {
+const syncDevProject = () => {
+  // DEV is the developer feedback environment and intentionally follows the
+  // local working tree, including uncommitted code changes.
+  const fingerprint = localDevFingerprint();
+  const current = readRuntimeMetadataFor('dev');
+  if (current?.sourceLocalFingerprint === fingerprint && existsSync(join(environments.dev.root, 'index.html'))) return;
+
+  copyLocalProject(REPO, environments.dev.root);
+  writeRuntimeMetadata(environments.dev.root, {
     environment: 'DEV',
-    feature: 'Main branch',
-    version: mainSha.slice(0, 12),
-    build: 'origin-main-' + mainSha.slice(0, 12),
-    sourceMainSha: mainSha,
-    source: 'origin/main',
+    feature: 'Local checkout',
+    version: runGit(['rev-parse', '--short', 'HEAD']),
+    build: 'local-working-tree',
+    sourceMainSha: runGit(['rev-parse', 'HEAD']),
+    sourceLocalFingerprint: fingerprint,
+    source: 'local-checkout',
     synchronizedAt: new Date().toISOString(),
   });
+  invalidateStrategyRuntime(environments.dev);
 };
 
 const startDevSync = () => {
@@ -449,9 +467,67 @@ const parseBody = async (request) => {
 
 const controlServer = createServer(async (request, response) => {
   try {
-    if (request.method === 'POST' && request.url === '/demo/clean') {
+    if (request.method === 'POST' && request.url === '/demo/reset') {
       cleanDemoState();
-      return json(response, 200, { ok: true, cleaned: true });
+      runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
+      const mainSha = runGit(['rev-parse', 'origin/' + BASE_BRANCH]);
+      const artifactDigest = 'sha256:' + createHash('sha256')
+        .update(JSON.stringify({ type: 'base', repository: REPO, mainSha }))
+        .digest('hex');
+      const destination = artifactDir(artifactDigest);
+      const manifest = manifestPath(artifactDigest);
+
+      clearDirectory(destination);
+      archiveRef(mainSha, destination);
+      validateStrategyArtifact(destination);
+      writeFileSync(manifest, JSON.stringify({
+        repository: REPO,
+        baseMainSha: mainSha,
+        prNumbers: [],
+        prHeadShas: {},
+        integrationSha: mainSha,
+        artifactDigest,
+        immutable: true,
+        source: 'main',
+        createdAt: new Date().toISOString(),
+      }, null, 2) + '\\n', 'utf8');
+
+      for (const [name, environment] of Object.entries(environments)) {
+        installArtifact(artifactDigest, environment, {
+          environment: name.toUpperCase(),
+          feature: 'Base main',
+          version: mainSha.slice(0, 12),
+          build: 'base-main-' + mainSha.slice(0, 12),
+          artifactDigest,
+          sourceMainSha: mainSha,
+          base: true,
+          restartStrategies: true,
+          bootstrappedAt: new Date().toISOString(),
+        });
+      }
+
+      writeOriginBuild({
+        feature: 'Base main',
+        version: mainSha.slice(0, 12),
+        build: 'base-main-' + mainSha.slice(0, 12),
+        artifactDigest,
+        artifactIntegrationSha: mainSha,
+        originMainSha: mainSha,
+        updatedAt: new Date().toISOString(),
+      });
+
+      return json(response, 200, {
+        ok: true,
+        cleaned: true,
+        artifactDigest,
+        artifactRegistry: 'local',
+        artifactRepository: REPO,
+        version: mainSha.slice(0, 12),
+        mainSha,
+        environments: Object.fromEntries(
+          Object.entries(environments).map(([name]) => [name, { port: environments[name].port, artifactDigest }]),
+        ),
+      });
     }
 
     if (request.method === 'POST' && request.url === '/deploy/base') {
