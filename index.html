@@ -9,8 +9,8 @@
   <body>
     <main class="shell">
       <section class="card">
-        <p class="eyebrow">DeployForge Mock V5</p>
-        <h1 id="environment">ENVIRONMENT</h1>
+        <p class="eyebrow">DeployForge Mock</p>
+        <h1 id="environment">ENV</h1>
         <p id="feature">Feature: loading…</p>
 
         <div class="counter">
@@ -24,42 +24,22 @@
           <strong id="version">loading…</strong>
         </div>
         <div class="meta">
-          <span>Fraud strategy</span>
-          <strong id="fraud-strategy">loading…</strong>
-        </div>
-        <div class="meta">
           <span>Build</span>
           <strong id="build">loading…</strong>
-        </div>
-        <div class="meta">
-          <span>Payment strategy</span>
-          <strong id="payment-strategy">loading…</strong>
         </div>
       </section>
     </main>
 
     <script>
-      const params = new URLSearchParams(window.location.search);
-      let currentEnvironment = params.get("env") || "LOCAL";
-
       async function loadRuntimeMetadata() {
-        let metadata = {
-          environment: "LOCAL",
-          feature: "Default UI",
-          version: "dev",
-          build: "local",
-        };
+        const response = await fetch("/deployforge-runtime.json", { cache: "no-store" });
+        if (!response.ok) throw new Error("runtime metadata unavailable");
 
-        try {
-          const response = await fetch("/deployforge-runtime.json", { cache: "no-store" });
-          if (response.ok) metadata = { ...metadata, ...(await response.json()) };
-        } catch {}
-
-        currentEnvironment = params.get("env") || metadata.environment;
-        const environment = currentEnvironment;
-        const feature = params.get("feature") || metadata.feature;
-        const version = params.get("version") || metadata.version;
-        const build = params.get("build") || metadata.build;
+        const metadata = await response.json();
+        const environment = String(metadata.environment || "ENV");
+        const feature = String(metadata.feature || "Deployment artifact");
+        const version = String(metadata.version || "unknown");
+        const build = String(metadata.build || "unknown");
 
         document.querySelector("#environment").textContent = environment;
         document.querySelector("#feature").textContent = "Feature: " + feature;
@@ -68,85 +48,29 @@
         document.body.dataset.environment = environment.toLowerCase();
       }
 
-      void loadRuntimeMetadata();
-
-      async function loadFraudStrategy() {
-        try {
-          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
-          if (!response.ok) throw new Error("strategy state unavailable");
-          const payload = await response.json();
-          const strategy = payload.strategies?.find((item) => item.id === "fraud-strategy");
-          document.querySelector("#fraud-strategy").textContent =
-            strategy?.selectedImplementation || "unavailable";
-        } catch {
-          document.querySelector("#fraud-strategy").textContent = "unavailable";
-        }
-      }
-
-      void loadFraudStrategy();
-
-      async function loadPaymentStrategy() {
-        try {
-          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
-          if (!response.ok) throw new Error("strategy state unavailable");
-          const payload = await response.json();
-          const strategy = payload.strategies?.find((item) => item.id === "payment-processor");
-          document.querySelector("#payment-strategy").textContent =
-            strategy?.selectedImplementation || "unavailable";
-        } catch {
-          document.querySelector("#payment-strategy").textContent = "unavailable";
-        }
-      }
-
-      void loadPaymentStrategy();
+      void loadRuntimeMetadata().catch(() => {
+        document.querySelector("#feature").textContent = "Feature: unavailable";
+        document.querySelector("#version").textContent = "unavailable";
+        document.querySelector("#build").textContent = "unavailable";
+      });
 
       const countElement = document.querySelector("#count");
       let count = 0;
-      let paymentImplementation = "legacy";
-
-      async function loadPaymentBehavior() {
-        try {
-          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
-          if (!response.ok) throw new Error("strategy state unavailable");
-          const payload = await response.json();
-          const strategy = payload.strategies?.find((item) => item.id === "payment-processor");
-          paymentImplementation = strategy?.selectedImplementation || "legacy";
-        } catch {
-          paymentImplementation = "legacy";
-        }
-      }
-      let fraudImplementation = "legacy";
-
-      async function loadFraudBehavior() {
-        try {
-          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
-          if (!response.ok) throw new Error("strategy state unavailable");
-          const payload = await response.json();
-          const strategy = payload.strategies?.find((item) => item.id === "fraud-strategy");
-          fraudImplementation = strategy?.selectedImplementation || "legacy";
-        } catch {
-          fraudImplementation = "legacy";
-        }
-      }
 
       const render = () => {
         countElement.textContent = count;
-        document.body.dataset.environment = currentEnvironment.toLowerCase();
       };
 
       document.querySelector("#increment").addEventListener("click", () => {
-        count += fraudImplementation === "rule-based" ? 3 : 1;
+        count += 1;
         render();
       });
 
       document.querySelector("#decrement").addEventListener("click", () => {
-        count -= fraudImplementation === "rule-based" ? 3 : 1;
+        count -= 1;
         render();
       });
 
-      void loadFraudBehavior()
-        .then(loadPaymentBehavior)
-        .then(render);
       render();
     </script>
   </body>
