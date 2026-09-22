@@ -964,8 +964,14 @@ const controlServer = createServer(async (request, response) => {
       const persisted = readStrategySelections(environmentName);
       const strategies = manifest.strategies.map((strategy) => ({
         id: strategy.id,
-        selectedImplementation: persisted[strategy.id] ?? strategy.defaultImplementation,
-        availableImplementationIds: strategy.implementations,
+        kind: strategy.kind,
+        selectedImplementation: strategy.kind === 'flag'
+          ? undefined
+          : persisted[strategy.id] ?? strategy.defaultImplementation,
+        flagEnabled: strategy.kind === 'flag'
+          ? (persisted[strategy.id] ?? strategy.defaultImplementation) === 'enabled'
+          : undefined,
+        availableImplementationIds: strategy.kind === 'flag' ? [] : strategy.implementations,
         defaultImplementation: strategy.defaultImplementation,
       }));
 
@@ -1032,6 +1038,12 @@ const controlServer = createServer(async (request, response) => {
         artifactDigest,
         ...result,
         selections: runtime.deployStrategy.selections(),
+        flags: [...runtime.deployStrategy.manifest().strategies]
+          .filter((definition) => definition.kind === 'flag')
+          .reduce((acc, definition) => {
+            acc[definition.id] = runtime.deployStrategy.isEnabled(definition.id);
+            return acc;
+          }, {}),
         order,
       });
     }
@@ -1215,8 +1227,14 @@ const staticServer = (environment, port) => createServer((request, response) => 
       const persisted = readStrategySelections(environmentName);
       const strategies = manifest.strategies.map((strategy) => ({
         id: strategy.id,
-        selectedImplementation: persisted[strategy.id] ?? strategy.defaultImplementation,
-        availableImplementationIds: strategy.implementations,
+        kind: strategy.kind,
+        selectedImplementation: strategy.kind === 'flag'
+          ? undefined
+          : persisted[strategy.id] ?? strategy.defaultImplementation,
+        flagEnabled: strategy.kind === 'flag'
+          ? (persisted[strategy.id] ?? strategy.defaultImplementation) === 'enabled'
+          : undefined,
+        availableImplementationIds: strategy.kind === 'flag' ? [] : strategy.implementations,
         defaultImplementation: strategy.defaultImplementation,
       }));
 

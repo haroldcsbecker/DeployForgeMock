@@ -10,6 +10,7 @@
       ],
       "defaultImplementation": "legacy",
       "dependsOn": [],
+      "kind": "switch",
       "lifecycle": false,
       "rollback": false,
       "projectRepository": "https://github.com/haroldcsbecker/DeployForgeMock",
@@ -20,6 +21,24 @@
         "legacy": "Legacy fraud evaluation path.",
         "rule-based": "Rule-based fraud evaluation path."
       }
+    },
+    {
+      "id": "new-checkout",
+      "registration": "newCheckoutEnabled",
+      "implementations": [
+        "disabled",
+        "enabled"
+      ],
+      "defaultImplementation": "disabled",
+      "dependsOn": [],
+      "kind": "flag",
+      "lifecycle": false,
+      "rollback": false,
+      "projectRepository": "https://github.com/haroldcsbecker/DeployForgeMock",
+      "sourcePath": "runtime/strategy-definitions.mjs",
+      "description": "Enables the new checkout flow when explicitly turned on.",
+      "rollbackDescription": "Disable the flag to return the runtime to the existing checkout flow.",
+      "implementationDescriptions": {}
     },
     {
       "id": "payment-processor",
@@ -33,6 +52,7 @@
       "dependsOn": [
         "fraud-strategy"
       ],
+      "kind": "switch",
       "lifecycle": true,
       "rollback": true,
       "projectRepository": "https://github.com/haroldcsbecker/DeployForgeMock",
