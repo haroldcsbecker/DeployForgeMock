@@ -227,9 +227,9 @@ const syncDevProject = () => {
   copyLocalProject(REPO, environments.dev.root);
   writeRuntimeMetadata(environments.dev.root, {
     environment: 'DEV',
-    feature: 'Local checkout',
+    feature: 'Development checkout',
     version: runGit(['rev-parse', '--short', 'HEAD']),
-    build: 'local-working-tree',
+    build: 'DeployForge DEV',
     sourceMainSha: runGit(['rev-parse', 'HEAD']),
     sourceLocalFingerprint: fingerprint,
     source: 'local-checkout',
@@ -265,12 +265,26 @@ const startDevSync = () => {
   }, 2000);
 };
 
+const canonicalArtifactMetadata = (digest, metadata) => {
+  const manifest = JSON.parse(readFileSync(manifestPath(digest), 'utf8'));
+  const isBaseArtifact = manifest?.source === 'main' && !manifest?.candidateId && !manifest?.sourceReleaseId;
+
+  return {
+    ...metadata,
+    feature: isBaseArtifact ? 'Base artifact' : 'Candidate artifact',
+    version: typeof manifest?.integrationSha === 'string'
+      ? manifest.integrationSha.slice(0, 12)
+      : metadata.version,
+    build: isBaseArtifact ? 'DeployForge BASE' : 'DeployForge CANDIDATE',
+  };
+};
+
 const installArtifact = (digest, environment, metadata) => {
   const source = artifactDir(digest);
   if (!existsSync(source)) throw new Error('Local artifact does not exist: ' + digest);
   clearDirectory(environment.root);
   cpSync(source, environment.root, { recursive: true });
-  writeRuntimeMetadata(environment.root, metadata);
+  writeRuntimeMetadata(environment.root, canonicalArtifactMetadata(digest, metadata));
   if (metadata.base || metadata.restartStrategies) {
     writeStrategySelections(runtimeEnvironmentName(environment), {});
   }
