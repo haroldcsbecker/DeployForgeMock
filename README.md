@@ -105,7 +105,7 @@ artifacts/
   <artifact-digest>/
 \`\`\`
 
-DEV follows the local DeployForgeMock checkout, including uncommitted code changes. HMG starts empty and is populated only when DeployForge calls the HMG deployment endpoint. When QA rejects an HMG candidate, DeployForge calls `/deploy/hmg/reset` with the batch's frozen base-branch SHA so the physical HMG directory is restored before another candidate is promoted. PROD is initially a base-branch snapshot and changes only when DeployForge calls the production deployment endpoint.
+DEV follows the local DeployForgeMock checkout, including uncommitted code changes. DEV follows the local working tree and is refreshed automatically when local files change. HMG and PROD start empty and are populated only by explicit DeployForge deployment/reset operations. When QA rejects an HMG candidate, DeployForge calls `/deploy/hmg/reset` with the batch's frozen base-branch SHA so the physical HMG directory is restored before another candidate is promoted.
 
 The local runtime uses the frozen batch data supplied by DeployForge. HMG fetches each exact PR head, verifies the SHA, merges the PRs in batch order on top of the frozen base-branch SHA, stores the resulting files as a local immutable artifact, and copies that artifact into \`environments/hmg/current/\`.
 
@@ -115,7 +115,7 @@ Production copies the same materialized artifact into \`environments/prod/curren
 
 The deployment API treats DEV, HMG, and PROD as independent environment targets.
 
-- `POST /deploy/base` requires `environment=dev|hmg|prod|all`; the `all` mode is only for explicit local bootstrap.
+- `POST /deploy/base` requires `environment=dev|hmg|prod|all`; use `all` only for the explicit clean BASE reset.
 - `POST /deploy/hmg` changes only HMG and verifies that DEV and PROD artifact digests remain unchanged.
 - `POST /deploy/prod` changes only PROD and verifies that DEV and HMG artifact digests remain unchanged.
 - DeployForge's base-history synchronization never uses the production deployment path. Production changes only through an approved release or an explicit rollback.
