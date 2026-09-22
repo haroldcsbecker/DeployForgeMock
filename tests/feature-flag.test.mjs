@@ -1,77 +1,224 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FeatureFlag } from '../runtime/feature-flag.mjs';
+import { createFeatureFlagRegistry } from '../packages/feature-flag/src/index.mjs';
 
-test('two-option FeatureFlag executes only the selected callback',()=>{
-  const flag=new FeatureFlag();
-  const calls=[];
-  const result=flag.select('legacy',{
-    legacy:()=>{calls.push('legacy');return 'legacy-result';},
-    new:()=>{calls.push('new');return 'new-result';},
-  });
-  assert.equal(result,'legacy-result');
-  assert.deepEqual(calls,['legacy']);
+const createMemoryStorage = (values = {}) => {
+  const persisted = { ...values };
+  let pending = Promise.resolve();
+
+  return {
+    values: persisted,
+    async getAll() {
+      return { ...persisted };
+    },
+    async set(name, value) {
+      pending = pending.then(async () => {
+        await Promise.resolve();
+        persisted[name] = value;
+      });
+      return pending;
+    },
+    async create(name, value) {
+      if (!(name in persisted)) persisted[name] = value;
+    },
+  };
+};
+
+test('featureFlag(name, defaultValue) returns synchronously and registers automatically', () => {
+  const registry = createFeatureFlagRegistry();
+  const flag = registry.featureFlag('payment-mode', 'legacy');
+
+  assert.equal(flag.name, 'payment-mode');
+  assert.equal(flag.value, 'legacy');
+  assert.deepEqual(registry.getAllFeatureFlags(), [
+    {
+      name: 'payment-mode',
+      value: 'legacy',
+      defaultValue: 'legacy',
+      options: [],
+    },
+  ]);
 });
 
-test('three-option FeatureFlag executes only the selected callback',()=>{
-  const flag=new FeatureFlag();
-  const calls=[];
-  flag.select('canary',{
-    legacy:()=>calls.push('legacy'),
-    new:()=>calls.push('new'),
-    canary:()=>calls.push('canary'),
-  });
-  assert.deepEqual(calls,['canary']);
+test('existing persisted value overrides the declared default during async initialization', async () => {
+  const registry = createFeatureFlagRegistry();
+  const flag = registry.featureFlag('payment-mode', 'legacy');
+  const storage = createMemoryStorage({ 'payment-mode': 'canary' });
+
+  await registry.configure({ storage });
+
+  assert.equal(flag.value, 'canary');
 });
 
-test('missing selection throws a clear error',()=>{
-  const flag=new FeatureFlag();
+test('multiple calls to the same name return the same logical FeatureFlag entry', () => {
+  const registry = createFeatureFlagRegistry();
+  const first = registry.featureFlag('checkout-mode', 'legacy');
+  const second = registry.featureFlag('checkout-mode', 'legacy');
+
+  assert.equal(first, second);
+  assert.equal(registry.getAllFeatureFlags().length, 1);
+});
+
+test('conflicting defaults for the same flag fail clearly', () => {
+  const registry = createFeatureFlagRegistry();
+  registry.featureFlag('checkout-mode', 'legacy');
+
   assert.throws(
-    ()=>flag.select('missing',{legacy:()=>{}}),
-    /selection "missing" is not present/,
+    () => registry.featureFlag('checkout-mode', 'new'),
+    /already registered with default "legacy"/,
   );
 });
 
-test('non-callable selected option throws a clear error',()=>{
-  const flag=new FeatureFlag();
+test('two-option selection executes the current value', async () => {
+  const registry = createFeatureFlagRegistry();
+  const flag = registry.featureFlag('checkout-mode', 'legacy');
+  const calls = [];
+
+  assert.equal(
+    flag.select({
+      legacy: () => {
+        calls.push('legacy');
+        return 'legacy-result';
+      },
+      new: () => {
+        calls.push('new');
+        return 'new-result';
+      },
+    }),
+    'legacy-result',
+  );
+
+  await flag.set('new');
+
+  assert.equal(
+    flag.select({
+      legacy: () => {
+        calls.push('legacy');
+        return 'legacy-result';
+      },
+      new: () => {
+        calls.push('new');
+        return 'new-result';
+      },
+    }),
+    'new-result',
+  );
+
+  assert.deepEqual(calls, ['legacy', 'new']);
+});
+
+test('three-option selection executes canary', () => {
+  const registry = createFeatureFlagRegistry();
+  const flag = registry.featureFlag('payment-mode', 'legacy');
+  const calls = [];
+
+  void flag.set('canary');
+
+  assert.equal(
+    flag.select({
+      legacy: () => calls.push('legacy'),
+      new: () => calls.push('new'),
+      canary: () => calls.push('canary'),
+    }),
+    undefined,
+  );
+
+  assert.deepEqual(calls, ['canary']);
+});
+
+test('unknown selected value throws instead of falling back', async () => {
+  const registry = createFeatureFlagRegistry();
+  const flag = registry.featureFlag('payment-mode', 'legacy');
+
+  await flag.set('unknown');
+
   assert.throws(
-    ()=>flag.select('legacy',{legacy:'not-callable'}),
+    () =>
+      flag.select({
+        legacy: () => 'legacy',
+        new: () => 'new',
+      }),
+    /selected value "unknown" with no matching callback/,
+  );
+});
+
+test('missing selected option throws clearly', async () => {
+  const registry = createFeatureFlagRegistry();
+  const flag = registry.featureFlag('payment-mode', 'legacy');
+
+  await flag.set('canary');
+
+  assert.throws(
+    () =>
+      flag.select({
+        legacy: () => 'legacy',
+        new: () => 'new',
+      }),
+    /selected value "canary" with no matching callback/,
+  );
+});
+
+test('non-callable selected option throws clearly', () => {
+  const registry = createFeatureFlagRegistry();
+  const flag = registry.featureFlag('payment-mode', 'legacy');
+
+  assert.throws(
+    () =>
+      flag.select({
+        legacy: 'not-callable',
+      }),
     /option "legacy" is not callable/,
   );
 });
 
-test('one FeatureFlag instance can execute independent selections without any container work',()=>{
-  const flag=new FeatureFlag();
-  const selections={payment:'legacy',checkout:'legacy'};
-  const calls=[];
-  const payment=()=>flag.select(selections.payment,{
-    legacy:()=>calls.push('payment:legacy'),
-    new:()=>calls.push('payment:new'),
-    canary:()=>calls.push('payment:canary'),
-  });
-  const checkout=()=>flag.select(selections.checkout,{
-    legacy:()=>calls.push('checkout:legacy'),
-    new:()=>calls.push('checkout:new'),
-  });
+test('set updates in-memory state before storage persistence completes', async () => {
+  const registry = createFeatureFlagRegistry();
+  const storage = {
+    value: 'legacy',
+    async getAll() {
+      return { 'payment-mode': this.value };
+    },
+    async set(_name, value) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      this.value = value;
+    },
+  };
 
-  payment();
-  checkout();
-  selections.payment='canary';
-  selections.checkout='new';
-  payment();
-  checkout();
+  await registry.configure({ storage });
+  const flag = registry.featureFlag('payment-mode', 'legacy');
 
-  assert.deepEqual(calls,[
-    'payment:legacy',
-    'checkout:legacy',
-    'payment:canary',
-    'checkout:new',
-  ]);
+  const pending = flag.set('canary');
+  assert.equal(flag.value, 'canary');
+  assert.equal(flag.select({
+    legacy: () => 'legacy',
+    canary: () => 'canary',
+  }), 'canary');
+
+  await pending;
+  assert.equal(storage.value, 'canary');
 });
 
-test('multiple FeatureFlags keep independent selection behavior',()=>{
-  const first=new FeatureFlag();
-  const second=new FeatureFlag();
-  assert.equal(first.select('one',{one:()=>1,two:()=>2}),1);
-  assert.equal(second.select('two',{one:()=>1,two:()=>2}),2);
+test('multiple flags are independent', async () => {
+  const registry = createFeatureFlagRegistry();
+  const paymentMode = registry.featureFlag('payment-mode', 'legacy');
+  const checkoutMode = registry.featureFlag('checkout-mode', 'legacy');
+
+  await paymentMode.set('canary');
+  await checkoutMode.set('new');
+
+  assert.equal(
+    paymentMode.select({
+      legacy: () => 'legacy',
+      new: () => 'new',
+      canary: () => 'canary',
+    }),
+    'canary',
+  );
+  assert.equal(
+    checkoutMode.select({
+      legacy: () => 'legacy',
+      new: () => 'new',
+    }),
+    'new',
+  );
 });
