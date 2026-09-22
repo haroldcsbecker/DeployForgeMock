@@ -1,46 +1,95 @@
 # DeployForge Mock
 
-A deliberately small deployment target used to demonstrate the DeployForge workflow and runtime Feature Flag selection.
+A deliberately small deployment target used to demonstrate the DeployForge workflow and runtime FeatureFlag selection.
 
-## Feature Flag runtime
+## FeatureFlag runtime
 
-There is one runtime concept: **Feature Flag**.
+There is one runtime concept: **FeatureFlag**.
 
-A Feature Flag contains a string selection and a map of named callbacks:
+Registering a flag is synchronous and uses the default value until startup hydration completes:
 
-```ts
-flag.select('canary', {
-  legacy: legacyCallback,
-  new: newCallback,
-  canary: canaryCallback,
+```js
+const paymentMode = featureFlag('payment-mode', 'legacy');
+```
+
+Application code selects the callback using the FeatureFlag's current value:
+
+```js
+paymentMode.select({
+  legacy: () => legacyPayment(),
+  new: () => newPayment(),
+  canary: () => canaryPayment(),
 });
 ```
 
-Two-option behavior uses the same API:
+Two-option behavior uses exactly the same API:
 
-```ts
-flag.select('legacy', {
-  legacy: legacyCheckout,
-  new: newCheckout,
+```js
+const checkoutMode = featureFlag('checkout-mode', 'legacy');
+
+checkoutMode.select({
+  legacy: () => legacyCheckout(),
+  new: () => newCheckout(),
 });
 ```
 
-The Feature Flag is deliberately independent from Awilix. Awilix constructs normal services; the Feature Flag only chooses which callback executes. Changing a value does not rebuild the container or restart the application.
+Runtime changes use the same handle:
 
-Available demo flags:
+```js
+await paymentMode.set('canary');
+```
+
+`set()` changes the in-memory value before awaiting storage persistence. It does not rebuild Awilix services, replace the container, or restart the application.
+
+## Initialization and storage
+
+The standalone package exposes an asynchronous initialization step:
+
+```js
+await configureFeatureFlags({ storage });
+```
+
+The core package depends on no database, HTTP client, DeployForge service, Redis client, or Awilix container. Persistence is supplied through an adapter implementing `getAll()` and `set(name, value)`.
+
+The mock runtime uses a JSON file adapter for local persistence:
+
+```
+environments/
+  hmg/feature-flags.json
+  prod/feature-flags.json
+```
+
+The registry is process-local. Separate application instances have separate in-memory values unless an external synchronization mechanism is added by the integration layer.
+
+## Package structure
+
+```
+packages/feature-flag/
+  package.json
+  src/
+    core/
+      feature-flag.mjs
+      registry.mjs
+      validation.mjs
+    index.mjs
+runtime/
+  feature-flag-file-storage.mjs
+```
+
+The package can be extracted into npm without bringing DeployForge or Awilix with it.
+
+## Available demo FeatureFlags
 
 - `fraud-mode`: `legacy | rule-based`
 - `checkout-mode`: `legacy | new`
 - `payment-mode`: `legacy | new | canary`
-
-Selections are persisted independently for HMG and Production and are validated against the immutable active artifact.
 
 ## Environments
 
 - DEV: http://localhost:8081
 - HMG: http://localhost:8082
 - PROD: http://localhost:8083
-- deployment/Feature Flag control API: http://localhost:8090
+- deployment/FeatureFlag control API: http://localhost:8090
 
 Run:
 
@@ -59,13 +108,13 @@ npm run feature-flag:validate
 
 ## Runtime API
 
-Read the active Feature Flag state:
+Read the active FeatureFlag state:
 
 ```
 GET /deployforge-feature-flags-runtime.json
 ```
 
-Read the artifact manifest:
+Read an artifact FeatureFlag manifest:
 
 ```
 POST /feature-flags/manifest
@@ -84,19 +133,6 @@ POST /feature-flags/select
 }
 ```
 
-The selection endpoint validates that the flag and selected value exist in the currently active immutable artifact, mutates only runtime selection state, and then executes the existing application service with the selected callbacks.
+The selection endpoint validates the selected value against the active immutable artifact, calls `FeatureFlag.set()`, persists through the storage adapter, and reuses the existing application service.
 
-Artifact rollback remains a deployment concern. The Feature Flag abstraction has no rollback or compensation API.
-
-## Deployment isolation
-
-HMG and Production use independent selection files:
-
-```
-environments/
-  hmg/feature-flags.json
-  prod/feature-flags.json
-```
-
-Changing a Feature Flag in HMG does not change Production and vice versa.
-
+Artifact rollback remains a deployment concern. The FeatureFlag abstraction has no rollback or compensation API.
