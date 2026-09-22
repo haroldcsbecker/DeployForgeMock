@@ -8,9 +8,7 @@
     "demo:start": "node runtime/server.mjs",
     "demo:check": "node --check runtime/server.mjs",
     "strategy:validate": "node runtime/validate-strategy-manifest.mjs",
-    "demo:bootstrap-base": "curl -fsS -X POST http://127.0.0.1:8090/deploy/base -H 'Content-Type: application/json' -d '{\"environment\":\"all\"}'",
-    "demo:clean": "curl -fsS -X POST http://127.0.0.1:8090/demo/clean -H 'Content-Type: application/json'",
-    "demo:reset-base": "npm run demo:clean && npm run demo:bootstrap-base"
+    "demo:reset": "curl -fsS -X POST http://127.0.0.1:8090/demo/reset -H 'Content-Type: application/json'"
   },
   "dependencies": {
     "awilix": "13.0.5"
