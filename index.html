@@ -12,6 +12,7 @@
         <p class="eyebrow">DeployForge Mock</p>
         <h1 id="environment">ENV</h1>
         <p id="feature">Feature: loading…</p>
+        <div id="strategy-banner" class="strategy-banner" hidden></div>
 
         <div class="counter">
           <button id="decrement" type="button">−</button>
@@ -24,6 +25,18 @@
           <strong id="version">loading…</strong>
         </div>
         <div class="meta">
+          <span>Fraud strategy</span>
+          <strong id="fraud-strategy">loading…</strong>
+        </div>
+        <div class="meta">
+          <span>Payment strategy</span>
+          <strong id="payment-strategy">loading…</strong>
+        </div>
+        <div class="meta">
+          <span>Checkout flag</span>
+          <strong id="checkout-flag">loading…</strong>
+        </div>
+        <div class="meta">
           <span>Build</span>
           <strong id="build">loading…</strong>
         </div>
@@ -31,45 +44,78 @@
     </main>
 
     <script>
+      const state = {
+        fraud: "legacy",
+        payment: "legacy",
+        checkout: false,
+        count: 0,
+      };
+
       async function loadRuntimeMetadata() {
         const response = await fetch("/deployforge-runtime.json", { cache: "no-store" });
         if (!response.ok) throw new Error("runtime metadata unavailable");
-
         const metadata = await response.json();
-        const environment = String(metadata.environment || "ENV");
-        const feature = String(metadata.feature || "Deployment artifact");
-        const version = String(metadata.version || "unknown");
-        const build = String(metadata.build || "unknown");
-
-        document.querySelector("#environment").textContent = environment;
-        document.querySelector("#feature").textContent = "Feature: " + feature;
-        document.querySelector("#version").textContent = version;
-        document.querySelector("#build").textContent = build;
-        document.body.dataset.environment = environment.toLowerCase();
+        document.querySelector("#environment").textContent = String(metadata.environment || "ENV");
+        document.querySelector("#version").textContent = String(metadata.version || "unknown");
+        document.querySelector("#build").textContent = String(metadata.build || "unknown");
+        document.body.dataset.environment = String(metadata.environment || "env").toLowerCase();
+        document.querySelector("#feature").textContent = "Feature: " + String(metadata.feature || "Deployment artifact");
       }
 
-      void loadRuntimeMetadata().catch(() => {
-        document.querySelector("#feature").textContent = "Feature: unavailable";
-        document.querySelector("#version").textContent = "unavailable";
-        document.querySelector("#build").textContent = "unavailable";
-      });
+      async function loadStrategyState() {
+        try {
+          const response = await fetch("/deployforge-strategy-runtime.json", { cache: "no-store" });
+          if (!response.ok) throw new Error("strategy state unavailable");
+          const payload = await response.json();
+          const fraud = payload.strategies?.find((item) => item.id === "fraud-strategy");
+          const payment = payload.strategies?.find((item) => item.id === "payment-processor");
+          const checkout = payload.strategies?.find((item) => item.id === "new-checkout");
 
-      const countElement = document.querySelector("#count");
-      let count = 0;
+          state.fraud = fraud?.selectedImplementation || "legacy";
+          state.payment = payment?.selectedImplementation || "legacy";
+          state.checkout = checkout?.flagEnabled === true;
+
+          document.querySelector("#fraud-strategy").textContent = state.fraud;
+          document.querySelector("#payment-strategy").textContent = state.payment;
+          document.querySelector("#checkout-flag").textContent = state.checkout ? "enabled" : "disabled";
+
+          const banner = document.querySelector("#strategy-banner");
+          banner.hidden = false;
+          banner.textContent = state.checkout
+            ? "NEW CHECKOUT ENABLED · Strategy changes are visible in this runtime."
+            : "LEGACY CHECKOUT · Feature Flag is disabled.";
+          banner.dataset.enabled = String(state.checkout);
+        } catch {
+          document.querySelector("#fraud-strategy").textContent = "unavailable";
+          document.querySelector("#payment-strategy").textContent = "unavailable";
+          document.querySelector("#checkout-flag").textContent = "unavailable";
+        }
+      }
 
       const render = () => {
-        countElement.textContent = count;
+        document.querySelector("#count").textContent = state.count;
       };
 
       document.querySelector("#increment").addEventListener("click", () => {
-        count += 1;
+        const fraudDelta = state.fraud === "rule-based" ? 3 : 1;
+        const paymentDelta = state.payment === "new" || state.payment === "canary" ? 2 : 1;
+        const checkoutDelta = state.checkout ? 1 : 0;
+        state.count += fraudDelta + paymentDelta + checkoutDelta;
         render();
       });
 
       document.querySelector("#decrement").addEventListener("click", () => {
-        count -= 1;
+        const fraudDelta = state.fraud === "rule-based" ? 3 : 1;
+        const paymentDelta = state.payment === "new" || state.payment === "canary" ? 2 : 1;
+        const checkoutDelta = state.checkout ? 1 : 0;
+        state.count -= fraudDelta + paymentDelta + checkoutDelta;
         render();
       });
+
+      void Promise.all([
+        loadRuntimeMetadata(),
+        loadStrategyState(),
+      ]).catch(() => {});
 
       render();
     </script>

@@ -388,6 +388,124 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
   }
 };
 
+const createProductionArtifact = ({ repository = REPO, sourceSha, excludedShas = [] }) => {
+  if (!sourceSha) throw new Error('sourceSha is required');
+  runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
+  runGit(['cat-file', '-e', sourceSha + '^{commit}']);
+
+  const normalizedExcluded = [...new Set(excludedShas.filter((sha) => typeof sha === 'string' && /^[0-9a-f]{7,40}$/i.test(sha)))].sort();
+  const artifactDigest = 'sha256:' + createHash('sha256')
+    .update(JSON.stringify({
+      type: 'production-composition',
+      repository,
+      sourceSha,
+      excludedShas: normalizedExcluded,
+    }))
+    .digest('hex');
+  const destination = artifactDir(artifactDigest);
+  const manifestPathname = manifestPath(artifactDigest);
+  if (existsSync(manifestPathname)) {
+    validateStrategyArtifact(destination);
+    return JSON.parse(readFileSync(manifestPathname, 'utf8'));
+  }
+
+  const temp = join(ROOT, '.runtime-worktrees', randomUUID());
+  mkdirSync(join(ROOT, '.runtime-worktrees'), { recursive: true });
+  try {
+    runGit(['worktree', 'add', '--detach', temp, sourceSha]);
+
+    // Start from the exact current main composition and remove every GMUD
+    // contribution that is still awaiting an independent decision.
+    for (const excludedSha of normalizedExcluded) {
+      try {
+        execFileSync('git', ['-C', temp, 'revert', '--no-edit', excludedSha], { stdio: 'pipe' });
+      } catch (error) {
+        try { execFileSync('git', ['-C', temp, 'revert', '--abort'], { stdio: 'pipe' }); } catch {}
+        const stderr = error && typeof error === 'object' && 'stderr' in error && Buffer.isBuffer(error.stderr)
+          ? error.stderr.toString('utf8').trim()
+          : '';
+        const stdout = error && typeof error === 'object' && 'stdout' in error && Buffer.isBuffer(error.stdout)
+          ? error.stdout.toString('utf8').trim()
+          : '';
+        throw new Error(
+          'Unable to compose the approved production source without pending commit ' +
+          excludedSha + '. Git revert output: ' + (stderr || stdout || 'unknown revert error'),
+        );
+      }
+    }
+
+    const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
+    clearDirectory(destination);
+    archiveRef(integrationSha, destination);
+    validateStrategyArtifact(destination);
+
+    if (!existsSync(join(destination, 'index.html'))) {
+      throw new Error('Production canary failed: application entrypoint index.html is missing');
+    }
+    if (!existsSync(join(destination, 'deployforge-strategy-manifest.json'))) {
+      throw new Error('Production canary failed: DeployStrategy manifest is missing');
+    }
+
+    const manifest = {
+      candidateId: undefined,
+      batchId: undefined,
+      sourceReleaseId: undefined,
+      repository,
+      sourceSha,
+      excludedShas: normalizedExcluded,
+      integrationSha,
+      artifactDigest,
+      immutable: true,
+      source: 'production-composition',
+      validationStatus: 'passed',
+      canaryStatus: 'passed',
+      createdAt: new Date().toISOString(),
+    };
+    writeFileSync(manifestPathname, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+    return manifest;
+  } finally {
+    try { runGit(['worktree', 'remove', '--force', temp]); } catch {}
+    rmSync(temp, { recursive: true, force: true });
+  }
+};
+
+const createDemoRefArtifact = ({ artifactId, sourceRef, repository = REPO }) => {
+  if (!artifactId || !sourceRef) throw new Error('artifactId and sourceRef are required');
+
+  let resolvedRef = sourceRef;
+  if (/^refs\/pull\/\d+\/head$/.test(sourceRef)) {
+    runGit(['fetch', 'origin', '+' + sourceRef + ':refs/deployforge-demo/' + sourceRef.replaceAll('/', '-')]);
+    resolvedRef = 'refs/deployforge-demo/' + sourceRef.replaceAll('/', '-');
+  }
+  runGit(['cat-file', '-e', resolvedRef + '^{commit}']);
+  const sourceSha = runGit(['rev-parse', resolvedRef]);
+  const artifactDigest = 'sha256:' + createHash('sha256')
+    .update(JSON.stringify({ type: 'demo-ref', artifactId, repository, sourceRef, sourceSha }))
+    .digest('hex');
+
+  const destination = artifactDir(artifactDigest);
+  const manifestPathname = manifestPath(artifactDigest);
+  if (existsSync(manifestPathname)) return JSON.parse(readFileSync(manifestPathname, 'utf8'));
+
+  clearDirectory(destination);
+  archiveRef(sourceSha, destination);
+  validateStrategyArtifact(destination);
+
+  const manifest = {
+    artifactId,
+    repository,
+    sourceRef,
+    sourceSha,
+    integrationSha: sourceSha,
+    artifactDigest,
+    immutable: true,
+    source: 'demo',
+    createdAt: new Date().toISOString(),
+  };
+  writeFileSync(manifestPathname, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  return manifest;
+};
+
 const createSelectiveReworkArtifact = ({
   sourceReleaseId,
   repository,
@@ -716,6 +834,71 @@ const controlServer = createServer(async (request, response) => {
         artifactRegistry: 'local',
         artifactRepository: repository,
         immutable: true,
+      });
+    }
+
+    if (request.method === 'POST' && request.url === '/artifact/build-production') {
+      const body = await parseBody(request);
+      const repository = String(body.repository ?? REPO);
+      const sourceSha = String(body.sourceSha ?? '');
+      const excludedShas = Array.isArray(body.excludedShas) ? body.excludedShas.map(String) : [];
+      if (!sourceSha) return json(response, 400, { error: 'sourceSha is required' });
+
+      const manifest = createProductionArtifact({ repository, sourceSha, excludedShas });
+      return json(response, 200, {
+        integrationSha: manifest.integrationSha,
+        artifactDigest: manifest.artifactDigest,
+        artifactRegistry: 'local',
+        artifactRepository: repository,
+        version: manifest.integrationSha.slice(0, 12),
+        immutable: true,
+        validationStatus: manifest.validationStatus,
+        canaryStatus: manifest.canaryStatus,
+        excludedShas: manifest.excludedShas,
+      });
+    }
+
+    if (request.method === 'POST' && request.url === '/artifact/build-demo-ref') {
+      const body = await parseBody(request);
+      const artifactId = String(body.artifactId ?? '');
+      const sourceRef = String(body.sourceRef ?? '');
+      const repository = String(body.repository ?? REPO);
+      if (!artifactId || !sourceRef) return json(response, 400, { error: 'artifactId and sourceRef are required' });
+
+      const manifest = createDemoRefArtifact({ artifactId, sourceRef, repository });
+      return json(response, 200, {
+        integrationSha: manifest.integrationSha,
+        artifactDigest: manifest.artifactDigest,
+        artifactRegistry: 'local',
+        artifactRepository: repository,
+        version: manifest.integrationSha.slice(0, 12),
+        immutable: true,
+        sourceRef: manifest.sourceRef,
+      });
+    }
+
+    if (request.method === 'POST' && request.url === '/demo/install-artifact') {
+      const body = await parseBody(request);
+      const environment = body.environment === 'hmg' ? environments.hmg : body.environment === 'prod' ? environments.prod : undefined;
+      const artifactDigest = String(body.artifactDigest ?? '');
+      if (!environment || !artifactDigest || !existsSync(manifestPath(artifactDigest))) {
+        return json(response, 400, { error: 'environment must be hmg or prod and artifactDigest must exist' });
+      }
+      const manifest = JSON.parse(readFileSync(manifestPath(artifactDigest), 'utf8'));
+      installArtifact(artifactDigest, environment, {
+        environment: body.environment === 'hmg' ? 'HMG' : 'PROD',
+        feature: String(body.feature ?? 'Demo artifact'),
+        version: manifest.integrationSha.slice(0, 12),
+        build: String(body.build ?? 'demo-' + manifest.integrationSha.slice(0, 12)),
+        artifactDigest,
+        demoSeed: true,
+        restartStrategies: Boolean(body.resetStrategies),
+      });
+      return json(response, 200, {
+        ok: true,
+        environment: body.environment,
+        artifactDigest,
+        version: manifest.integrationSha.slice(0, 12),
       });
     }
 
@@ -1181,7 +1364,7 @@ const controlServer = createServer(async (request, response) => {
       const manifest = JSON.parse(readFileSync(manifestPath(body.artifactDigest), 'utf8'));
       const releaseBuild = body.rollbackOfReleaseId
         ? 'rollback-' + String(body.releaseId).replace(/^release-/, '')
-        : 'release-' + String(body.candidateId).replace(/^candidate-/, '');
+        : 'release-' + String(body.releaseId).replace(/^release-/, 'final-');
 
       installArtifact(body.artifactDigest, environments.prod, {
         environment: 'PROD',
