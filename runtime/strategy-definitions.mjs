@@ -1,6 +1,7 @@
 import { DeployStrategy } from './deploy-strategy.mjs';
 import { CanaryPaymentProcessor, LegacyPaymentProcessor, NewPaymentProcessor } from './strategies/payment-processor.mjs';
 import { FraudLegacy, FraudRules } from './strategies/fraud-strategy.mjs';
+import { AsyncOrderRouter, ExperimentOrderRouter, LegacyOrderRouter, OptimizedOrderRouter, RulesOrderRouter } from './strategies/order-routing.mjs';
 
 export function createDeployStrategy() {
   const strategy = new DeployStrategy();
@@ -58,6 +59,33 @@ export function createDeployStrategy() {
         legacy: 'Legacy payment processor implementation.',
         new: 'New payment processor implementation with the current fraud strategy dependency.',
         canary: 'Canary payment processor used to validate a third implementation before becoming the new default.',
+      },
+    },
+  );
+
+  strategy.register(
+    'order-routing',
+    strategy
+      .switchBetween(
+        { id: 'legacy', implementation: LegacyOrderRouter },
+        { id: 'rules', implementation: RulesOrderRouter },
+        { id: 'optimized', implementation: OptimizedOrderRouter },
+        { id: 'async', implementation: AsyncOrderRouter },
+        { id: 'experiment', implementation: ExperimentOrderRouter },
+      )
+      .default('legacy'),
+    {
+      registration: 'orderRouter',
+      projectRepository: 'https://github.com/haroldcsbecker/DeployForgeMock',
+      sourcePath: 'runtime/strategies/order-routing.mjs',
+      description: 'Controls the routing implementation used to dispatch orders.',
+      rollbackDescription: 'Changing or rolling back the artifact restores the selected routing implementation. This flag has no external compensation handler.',
+      implementationDescriptions: {
+        legacy: 'Legacy order routing path.',
+        rules: 'Rules-based routing path.',
+        optimized: 'Optimized routing path for the standard traffic pattern.',
+        async: 'Asynchronous routing path for non-blocking dispatch.',
+        experiment: 'Experimental routing path used for controlled validation.',
       },
     },
   );
