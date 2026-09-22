@@ -1,7 +1,8 @@
 export class OrderService {
   constructor({
-    featureFlag,
-    featureSelections,
+    paymentMode,
+    fraudMode,
+    checkoutMode,
     database,
     fraudLegacy,
     fraudRules,
@@ -9,8 +10,9 @@ export class OrderService {
     newPaymentProcessor,
     canaryPaymentProcessor,
   }) {
-    this.featureFlag = featureFlag;
-    this.featureSelections = featureSelections;
+    this.paymentMode = paymentMode;
+    this.fraudMode = fraudMode;
+    this.checkoutMode = checkoutMode;
     this.database = database;
     this.fraudLegacy = fraudLegacy;
     this.fraudRules = fraudRules;
@@ -20,18 +22,27 @@ export class OrderService {
   }
 
   checkout() {
-    const fraud = this.featureFlag.select(this.featureSelections['fraud-mode'], {
+    const fraud = this.fraudMode.select({
       legacy: () => this.fraudLegacy.evaluate(),
       'rule-based': () => this.fraudRules.evaluate(),
     });
 
-    const payment = this.featureFlag.select(this.featureSelections['payment-mode'], {
-      legacy: () => this.legacyPaymentProcessor.process({ fraudImplementationId: fraud.implementationId }),
-      new: () => this.newPaymentProcessor.process({ fraudImplementationId: fraud.implementationId }),
-      canary: () => this.canaryPaymentProcessor.process({ fraudImplementationId: fraud.implementationId }),
+    const payment = this.paymentMode.select({
+      legacy: () =>
+        this.legacyPaymentProcessor.process({
+          fraudImplementationId: fraud.implementationId,
+        }),
+      new: () =>
+        this.newPaymentProcessor.process({
+          fraudImplementationId: fraud.implementationId,
+        }),
+      canary: () =>
+        this.canaryPaymentProcessor.process({
+          fraudImplementationId: fraud.implementationId,
+        }),
     });
 
-    const checkout = this.featureFlag.select(this.featureSelections['checkout-mode'], {
+    const checkout = this.checkoutMode.select({
       legacy: () => ({ implementationId: 'legacy' }),
       new: () => ({ implementationId: 'new' }),
     });
@@ -40,7 +51,11 @@ export class OrderService {
       database: this.database.name,
       checkout,
       payment,
-      featureSelections: { ...this.featureSelections },
+      featureFlags: {
+        'fraud-mode': this.fraudMode.value,
+        'payment-mode': this.paymentMode.value,
+        'checkout-mode': this.checkoutMode.value,
+      },
     };
   }
 }
