@@ -4,10 +4,16 @@ import { dirname } from 'node:path';
 export class JsonFeatureFlagStorage {
   constructor(filePath) {
     this.filePath = filePath;
+    this.values = undefined;
+    this.writeQueue = Promise.resolve();
   }
 
   async getAll() {
-    if (!existsSync(this.filePath)) return {};
+    if (this.values) return { ...this.values };
+    if (!existsSync(this.filePath)) {
+      this.values = {};
+      return {};
+    }
 
     const value = JSON.parse(readFileSync(this.filePath, 'utf8'));
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -20,20 +26,27 @@ export class JsonFeatureFlagStorage {
       }
     }
 
-    return value;
+    this.values = { ...value };
+    return { ...this.values };
   }
 
   async set(name, value) {
-    const current = await this.getAll();
-    current[name] = value;
-    this.write(current);
+    await this.getAll();
+    this.values[name] = value;
+    this.writeQueue = this.writeQueue.then(() => {
+      this.write(this.values);
+    });
+    return this.writeQueue;
   }
 
   async create(name, defaultValue) {
-    const current = await this.getAll();
-    if (Object.prototype.hasOwnProperty.call(current, name)) return;
-    current[name] = defaultValue;
-    this.write(current);
+    await this.getAll();
+    if (Object.prototype.hasOwnProperty.call(this.values, name)) return;
+    this.values[name] = defaultValue;
+    this.writeQueue = this.writeQueue.then(() => {
+      this.write(this.values);
+    });
+    return this.writeQueue;
   }
 
   write(values) {
