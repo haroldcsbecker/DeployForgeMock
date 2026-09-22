@@ -100,7 +100,7 @@ test('executes implementation-specific compensation independently from switching
   assert.match(result.details, /new payment compensation/);
 });
 
-test('refreshes singleton consumers after a strategy switch', async () => {
+test('resolves consumers with the active strategy after a switch', async () => {
   const strategy = createDeployStrategy();
   const container = createContainer({ strict: true });
   container.register({
