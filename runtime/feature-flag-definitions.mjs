@@ -1,5 +1,9 @@
-import { createFraudLegacy, createFraudRules } from './strategies/fraud-strategy.mjs';
-import { CanaryPaymentProcessor, LegacyPaymentProcessor, NewPaymentProcessor } from './strategies/payment-processor.mjs';
+import { createFraudLegacy, createFraudRules } from './implementations/fraud.mjs';
+import {
+  CanaryPaymentProcessor,
+  LegacyPaymentProcessor,
+  NewPaymentProcessor,
+} from './implementations/payment-processors.mjs';
 
 const definitions = [
   {
@@ -7,7 +11,7 @@ const definitions = [
     values: ['legacy', 'rule-based'],
     defaultValue: 'legacy',
     projectRepository: 'https://github.com/haroldcsbecker/DeployForgeMock',
-    sourcePath: 'runtime/strategies/fraud-strategy.mjs',
+    sourcePath: 'runtime/implementations/fraud.mjs',
     description: 'Selects the fraud evaluation implementation used by checkout.',
     implementationDescriptions: {
       legacy: 'Legacy fraud evaluation path.',
@@ -31,7 +35,7 @@ const definitions = [
     values: ['legacy', 'new', 'canary'],
     defaultValue: 'legacy',
     projectRepository: 'https://github.com/haroldcsbecker/DeployForgeMock',
-    sourcePath: 'runtime/strategies/payment-processor.mjs',
+    sourcePath: 'runtime/implementations/payment-processors.mjs',
     description: 'Selects the payment processor implementation used by checkout.',
     implementationDescriptions: {
       legacy: 'Legacy payment processor.',
@@ -52,5 +56,13 @@ export function createFeatureFlagManifest() {
   };
 }
 
+export function registerFeatureFlags(featureFlag) {
+  return Object.fromEntries(
+    definitions.map((definition) => [
+      definition.id,
+      featureFlag(definition.id, definition.defaultValue),
+    ]),
+  );
+}
 
 export { createFraudLegacy, createFraudRules, LegacyPaymentProcessor, NewPaymentProcessor, CanaryPaymentProcessor };
