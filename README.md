@@ -136,3 +136,5 @@ POST /feature-flags/select
 The selection endpoint validates the selected value against the active immutable artifact, calls `FeatureFlag.set()`, persists through the storage adapter, and reuses the existing application service.
 
 Artifact rollback remains a deployment concern. The FeatureFlag abstraction has no rollback or compensation API.
+
+<!-- CI validation branch: exercises the current unified FeatureFlag implementation. -->
