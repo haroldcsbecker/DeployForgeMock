@@ -5,6 +5,7 @@ import { join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { createApplicationRuntime } from './app-container.mjs';
+import { createFeatureFlagFileStorage } from './feature-flag-file-storage.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENV_ROOT = join(ROOT, 'environments');
@@ -88,7 +89,7 @@ const featureFlagRuntimeFor = async (environmentName) => {
   const runtime = await createApplicationRuntime({
     environmentRoot: environment.root,
     artifactDigest,
-    selections: readFeatureFlagSelections(environmentName),
+    storage: createFeatureFlagFileStorage(featureFlagStatePath(environmentName)),
   });
   featureFlagRuntimeCache.set(key, runtime);
   return runtime;
@@ -889,7 +890,7 @@ const controlServer = createServer(async (request, response) => {
         build: String(body.build ?? 'demo-' + manifest.integrationSha.slice(0, 12)),
         artifactDigest,
         demoSeed: true,
-        restartFeatureFlags: Boolean(body.resetStrategies),
+        restartFeatureFlags: Boolean(body.resetFeatureFlags),
       });
       return json(response, 200, {
         ok: true,
@@ -1197,7 +1198,11 @@ const controlServer = createServer(async (request, response) => {
 
       const runtime = await featureFlagRuntimeFor(environment);
       const definition = runtime.manifest.featureFlags.find((item) => item.id === featureFlagId);
-      if (!definition) return json(response, 404, { error: 'Feature Flag "' + featureFlagId + '" is not present in the active artifact' });
+      const flag = runtime.featureFlags[featureFlagId];
+
+      if (!definition || !flag) {
+        return json(response, 404, { error: 'Feature Flag "' + featureFlagId + '" is not present in the active artifact' });
+      }
       if (!definition.values.includes(selectedValue)) {
         return json(response, 409, {
           error: 'Feature Flag "' + featureFlagId + '" does not contain value "' + selectedValue + '"',
@@ -1205,10 +1210,9 @@ const controlServer = createServer(async (request, response) => {
         });
       }
 
-      const previousValue = runtime.featureSelections[featureFlagId] ?? definition.defaultValue;
+      const previousValue = flag.value;
       const changed = previousValue !== selectedValue;
-      runtime.featureSelections[featureFlagId] = selectedValue;
-      writeFeatureFlagSelections(environment, runtime.featureSelections);
+      if (changed) await flag.set(selectedValue);
 
       const order = runtime.container.resolve('orderService').checkout();
       return json(response, 200, {
@@ -1216,10 +1220,10 @@ const controlServer = createServer(async (request, response) => {
         artifactDigest,
         featureFlagId,
         previousValue,
-        selectedValue,
+        selectedValue: flag.value,
         availableValues: definition.values,
         changed,
-        selections: { ...runtime.featureSelections },
+        featureFlags: runtime.featureFlagRegistry.getAllFeatureFlags(),
         order,
       });
     }
@@ -1369,16 +1373,27 @@ const staticServer = (environment, port) => createServer((request, response) => 
     if (request.method === 'GET' && pathname === '/deployforge-feature-flags-runtime.json') {
       const environmentName = runtimeEnvironmentName(environment);
       const artifactDigest = activeArtifactDigest(environmentName);
-      if (!artifactDigest) { json(response, 404, { error: 'No immutable artifact is active in this environment' }); return; }
-      const manifest = readArtifactFeatureFlagManifest(artifactDigest);
-      const persisted = readFeatureFlagSelections(environmentName);
-      const featureFlags = manifest.featureFlags.map((featureFlag) => ({
-        id: featureFlag.id,
-        selectedValue: persisted[featureFlag.id] ?? featureFlag.defaultValue,
-        availableValues: featureFlag.values,
-        defaultValue: featureFlag.defaultValue,
-      }));
-      json(response, 200, { environment: environmentName, artifactDigest, featureFlags });
+      if (!artifactDigest) {
+        json(response, 404, { error: 'No immutable artifact is active in this environment' });
+        return;
+      }
+
+      const runtime = await featureFlagRuntimeFor(environmentName);
+      const featureFlags = runtime.manifest.featureFlags.map((definition) => {
+        const flag = runtime.featureFlags[definition.id];
+        return {
+          id: definition.id,
+          selectedValue: flag.value,
+          availableValues: definition.values,
+          defaultValue: flag.defaultValue,
+        };
+      });
+
+      json(response, 200, {
+        environment: environmentName,
+        artifactDigest,
+        featureFlags,
+      });
       return;
     }
 
