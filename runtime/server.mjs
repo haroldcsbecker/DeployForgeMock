@@ -47,17 +47,6 @@ const invalidateFeatureFlagRuntime = (environment) => {
   }
 };
 
-const readFeatureFlagSelections = (environmentName) => {
-  const path = featureFlagStatePath(environmentName);
-  if (!existsSync(path)) return {};
-  try {
-    const value = JSON.parse(readFileSync(path, 'utf8'));
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  } catch {
-    return {};
-  }
-};
-
 const writeFeatureFlagSelections = (environmentName, selections) => {
   mkdirSync(join(ENV_ROOT, environmentName), { recursive: true });
   writeFileSync(featureFlagStatePath(environmentName), JSON.stringify(selections, null, 2) + '\n', 'utf8');
@@ -1175,8 +1164,11 @@ const controlServer = createServer(async (request, response) => {
       }
 
       const manifest = readArtifactFeatureFlagManifest(requestedDigest);
-      const persisted = readFeatureFlagSelections(environment);
-      return json(response, 200, { environment: body.environment, artifactDigest: requestedDigest, manifest, selections: persisted });
+      return json(response, 200, {
+        environment: body.environment,
+        artifactDigest: requestedDigest,
+        manifest,
+      });
     }
     if (request.method === 'POST' && request.url === '/feature-flags/select') {
       const body = await parseBody(request);
