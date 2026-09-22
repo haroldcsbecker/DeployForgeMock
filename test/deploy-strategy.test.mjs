@@ -99,3 +99,25 @@ test('executes implementation-specific compensation independently from switching
   assert.equal(result.compensated, true);
   assert.match(result.details, /new payment compensation/);
 });
+
+test('refreshes singleton consumers after a strategy switch', async () => {
+  const strategy = createDeployStrategy();
+  const container = createContainer({ strict: true });
+  container.register({
+    logger: asValue({ events: [] }),
+    database: asValue({ name: 'db' }),
+    orderService: asClass(OrderService),
+  });
+
+  await strategy.attach(container);
+  const before = container.resolve('orderService').checkout();
+  assert.equal(before.payment.implementationId, 'legacy');
+
+  await strategy.switchTo(container, 'payment-processor', 'new', {
+    environment: 'hmg',
+    artifactDigest: 'sha256:test',
+  });
+
+  const after = container.resolve('orderService').checkout();
+  assert.equal(after.payment.implementationId, 'new');
+});
