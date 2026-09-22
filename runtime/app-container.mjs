@@ -14,7 +14,7 @@ export async function createApplicationRuntime({ environmentRoot, environment, a
   container.register({
     logger: asValue(logger),
     database: asValue(database),
-    orderService: asClass(OrderService).singleton(),
+    orderService: asClass(OrderService),
   });
 
   const strategyModule = await import(moduleUrl(environmentRoot, artifactDigest));
