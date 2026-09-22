@@ -89,6 +89,29 @@ jobs:
           test -n "$DIGEST"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
+      - name: Clean previous repository releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r TAG; do
+            [[ -z "$TAG" || "$TAG" == "base-main" ]] && continue
+            gh release delete "$TAG" --yes --cleanup-tag || true
+          done < <(gh release list --limit 200 --json tagName --jq '.[].tagName')
+
+      - name: Clean previous GHCR package versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          PACKAGE="deployforgemock"
+          KEEP_ID="$(gh api --paginate "/users/${OWNER}/packages/container/${PACKAGE}/versions?per_page=100"             --jq '.[] | select(((.metadata.container.tags // []) | index("base-main")) != null) | .id' | head -n 1 || true)"
+          while read -r ID; do
+            [[ -z "$ID" || "$ID" == "$KEEP_ID" ]] && continue
+            gh api --method DELETE "/users/${OWNER}/packages/container/${PACKAGE}/versions/${ID}" || true
+          done < <(gh api --paginate "/users/${OWNER}/packages/container/${PACKAGE}/versions?per_page=100" --jq '.[].id')
+
       - name: Publish baseline release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
