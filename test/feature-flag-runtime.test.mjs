@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createApplicationRuntime } from '../runtime/app-container.mjs';
-import { getFeatureFlagClient } from '../runtime/feature-flags/open-feature.mjs';
 
-test('HMG evaluates the current GO Feature Flag variants', async () => {
+test('HMG application evaluates fraud, payment and checkout through OpenFeature', async () => {
   const runtime = await createApplicationRuntime({
     environment: 'hmg',
     artifactDigest: 'test-artifact',
@@ -21,19 +20,7 @@ test('HMG evaluates the current GO Feature Flag variants', async () => {
   assert.equal(order.checkout.implementationId, 'new');
 });
 
-test('Production evaluates independently through the same OpenFeature provider', async () => {
-  const client = await getFeatureFlagClient('production');
-
-  const payment = await client.getStringValue('payment-mode', 'legacy');
-  const fraud = await client.getStringValue('fraud-mode', 'legacy');
-  const checkout = await client.getStringValue('checkout-mode', 'legacy');
-
-  assert.equal(payment, 'legacy');
-  assert.equal(fraud, 'legacy');
-  assert.equal(checkout, 'legacy');
-});
-
-test('changing GO Feature Flag configuration is observed without rebuilding the application container', async (t) => {
+test('the same application service reflects a changed OpenFeature context without container rebuild', async () => {
   const runtime = await createApplicationRuntime({
     environment: 'hmg',
     artifactDigest: 'test-artifact',
@@ -42,14 +29,32 @@ test('changing GO Feature Flag configuration is observed without rebuilding the 
 
   const container = runtime.container;
   const orderService = container.resolve('orderService');
-  const before = await orderService.checkout();
+  const client = runtime.featureFlagClient;
 
-  assert.equal(before.payment.implementationId, 'canary');
+  assert.equal((await orderService.checkout()).payment.implementationId, 'canary');
 
-  t.diagnostic(
-    'This test relies on the GO Feature Flag relay proxy polling the mounted flags.goff.yaml configuration.',
-  );
+  await client.setContext({
+    targetingKey: 'deployforge-production-test',
+    environment: 'production',
+  });
+
+  const order = await orderService.checkout();
 
   assert.equal(container.resolve('orderService'), orderService);
-  assert.equal((await orderService.checkout()).payment.implementationId, 'canary');
+  assert.equal(order.payment.implementationId, 'legacy');
+  assert.equal(order.featureFlags['payment-mode'], 'legacy');
+  assert.equal(order.featureFlags['checkout-mode'], 'legacy');
+});
+
+test('application runtime loads implementation code from the active artifact', async () => {
+  const runtime = await createApplicationRuntime({
+    environment: 'hmg',
+    artifactDigest: 'test-artifact',
+    environmentRoot: process.cwd(),
+  });
+
+  assert.ok(runtime.container.resolve('legacyPaymentProcessor'));
+  assert.ok(runtime.container.resolve('newPaymentProcessor'));
+  assert.ok(runtime.container.resolve('canaryPaymentProcessor'));
+  assert.ok(runtime.container.resolve('orderService'));
 });
