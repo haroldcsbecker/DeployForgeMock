@@ -315,7 +315,7 @@ const createHmgArtifact = ({ artifactId, artifactDigest, repository, baseMainSha
         const details = stderr || stdout || (error instanceof Error ? error.message : 'unknown git merge error');
         throw new Error(
           'Unable to compose PR #' + number + ' on frozen base ' + baseMainSha +
-          '. The PR may need to be rebased onto the batch base/main before it can be deployed to HMG. Git merge output: ' + details,
+          '. The PR may need to be rebased onto the current main before it can be deployed to HMG. Git merge output: ' + details,
         );
       }
     }
