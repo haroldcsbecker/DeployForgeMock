@@ -1,16 +1,16 @@
 # DeployForge Mock
 
-A deliberately small deployment target used to demonstrate the DeployForge workflow with GO Feature Flag and OpenFeature.
+A small deployment target used to demonstrate the DeployForge workflow with GO Feature Flag and OpenFeature.
 
 ## Runtime feature flags
 
 The application uses **OpenFeature** as its application-facing flag API and the official **GO Feature Flag provider** for evaluation.
 
-The runtime initializes the provider once at startup and uses **remote evaluation** through the GO Feature Flag relay proxy. This keeps GO Feature Flag as the runtime source of truth and makes configuration changes visible on the next evaluation without rebuilding the application.
+The runtime initializes the provider once at startup and uses remote evaluation through the GO Feature Flag relay proxy.
 
 Example:
 
-```js
+~~~js
 const paymentMode = await featureFlagClient.getStringValue(
   'payment-mode',
   'legacy',
@@ -23,60 +23,61 @@ const processors = {
 };
 
 const processor = processors[paymentMode] ?? legacyPaymentProcessor;
-```
+~~~
 
-Two-option behavior uses standard OpenFeature string or boolean evaluation. There is no custom `FeatureFlag`, Feature Switch, callback registry, runtime proxy, or flag persistence layer.
+There is no custom Feature Flag registry, Feature Switch layer, runtime proxy, or persisted flag-value store.
 
 ## Flags
 
 Current demo flags:
 
-- `fraud-mode`: `legacy | rule-based`
-- `checkout-mode`: `legacy | new`
-- `payment-mode`: `legacy | new | canary`
+- fraud-mode: legacy | rule-based
+- checkout-mode: legacy | new
+- payment-mode: legacy | new | canary
 
-The GO Feature Flag configuration is stored in:
+GO Feature Flag configuration is stored in:
 
-```
+~~~text
 flags.goff.yaml
-```
+~~~
 
-The local relay proxy configuration is:
+The local relay configuration is:
 
-```
+~~~text
 goff-proxy.yaml
-```
+~~~
 
-HMG, Production and other contexts are selected through the OpenFeature evaluation context. The current demo uses the same targeting key and adds an `environment` attribute for targeting.
+HMG and Production use different OpenFeature environment attributes for targeting.
 
 ## Local runtime
 
-The complete local feature-flag path is:
+The local feature-flag path is:
 
-```
-Docker Compose
-    ↓
-GO Feature Flag relay proxy :1031
-    ↓
-OpenFeature Node.js SDK
-    ↓
-GO Feature Flag provider
-    ↓
+~~~text
 DeployForgeMock application
-```
+        |
+        v
+OpenFeature Node.js SDK
+        |
+        v
+GO Feature Flag provider
+        |
+        v
+GO Feature Flag relay :1031
+~~~
 
 Start GO Feature Flag:
 
-```bash
+~~~bash
 docker compose up -d go-feature-flag
-```
+~~~
 
 Then start the mock:
 
-```bash
+~~~bash
 npm install
 npm run demo:start
-```
+~~~
 
 The runtime exposes:
 
@@ -88,48 +89,33 @@ The runtime exposes:
 
 The provider endpoint can be overridden with:
 
-```env
+~~~env
 GO_FEATURE_FLAG_ENDPOINT=http://127.0.0.1:1031/
-```
+~~~
 
-The default is the local relay proxy above.
+## Deployment model
 
-## Configuration changes
+DeployForgeMock implements the physical side of the new deployment flow.
 
-GO Feature Flag owns runtime configuration. Editing `flags.goff.yaml` changes the provider configuration; the Node provider polls for configuration changes while the process remains running.
+HMG receives one current artifact:
 
-No DeployForge database update, artifact rebuild, container rebuild or application restart is required for a supported configuration refresh.
+~~~text
+Main + selected PRs = current HMG artifact
+~~~
 
-## Deployment separation
+A new selection replaces the current HMG artifact by rebuilding and deploying the composition. The mock does not persist a batch, candidate queue, or HMG artifact history.
 
-DeployForgeMock does not persist feature-flag values in `environments/*` and does not expose a custom Feature Flag REST API.
-
-DeployForge remains responsible for:
-
-- immutable artifacts
-- HMG deployment and QA
-- Production deployment
-- GMUD
-- artifact rollback
-
-GO Feature Flag remains responsible for:
-
-- flag configuration
-- variants and values
-- targeting
-- runtime evaluation
-
-Changing a flag is a runtime configuration operation, not an artifact rollback.
+Production receives the production artifact selected by DeployForge. Production rollback can restore a production release through the deployment adapter.
 
 ## Validation
 
 Run:
 
-```bash
+~~~bash
 docker compose up -d go-feature-flag
 npm test
 npm run demo:check
 docker compose down -v
-```
+~~~
 
-The tests verify OpenFeature initialization, boolean and string evaluation, environment targeting, and application service behavior without dependency-container replacement.
+The tests verify OpenFeature initialization, string and boolean evaluation, environment targeting, runtime configuration refresh, and application service behavior.
