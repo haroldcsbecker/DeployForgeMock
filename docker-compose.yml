@@ -1,7 +1,6 @@
 services:
   go-feature-flag:
     image: gofeatureflag/go-feature-flag:v1.55.2
-    command: ["--config=/goff/goff-proxy.yaml"]
     ports:
       - "1031:1031"
     volumes:
