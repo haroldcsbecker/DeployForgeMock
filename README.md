@@ -133,3 +133,5 @@ docker compose down -v
 ```
 
 The tests verify OpenFeature initialization, boolean and string evaluation, environment targeting, and application service behavior without dependency-container replacement.
+
+<!-- ci: final GOFF lifecycle validation -->
