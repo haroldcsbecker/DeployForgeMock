@@ -5,6 +5,7 @@ import { join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { createApplicationRuntime } from './app-container.mjs';
+import { initializeFeatureFlags } from './feature-flags/open-feature.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENV_ROOT = join(ROOT, 'environments');
@@ -30,16 +31,16 @@ const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact
 const originBuildPath = join(ROOT, 'origin-build.json');
 const stablePackagePath = join(ROOT, 'stable-package.json');
 const dirtyPackageTagsPath = join(ROOT, 'dirty-package-tags.json');
-const featureFlagRuntimeCache = new Map();
+const applicationRuntimeCache = new Map();
 
 const runtimeEnvironmentName = (environment) =>
   Object.entries(environments).find(([, value]) => value === environment)?.[0];
 
-const invalidateFeatureFlagRuntime = (environment) => {
+const invalidateApplicationRuntime = (environment) => {
   const environmentName = runtimeEnvironmentName(environment);
   if (!environmentName) return;
-  for (const key of featureFlagRuntimeCache.keys()) {
-    if (key.startsWith(environmentName + ':')) featureFlagRuntimeCache.delete(key);
+  for (const key of applicationRuntimeCache.keys()) {
+    if (key.startsWith(environmentName + ':')) applicationRuntimeCache.delete(key);
   }
 };
 
@@ -59,18 +60,22 @@ const activeArtifactDigest = (environmentName) => {
   return typeof metadata?.artifactDigest === 'string' ? metadata.artifactDigest : undefined;
 };
 
-const featureFlagRuntimeFor = async (environmentName) => {
+const applicationRuntimeFor = async (environmentName) => {
   const artifactDigest = activeArtifactDigest(environmentName);
   if (!artifactDigest) throw new Error('No immutable artifact is active in ' + environmentName.toUpperCase());
+
   const key = environmentName + ':' + artifactDigest;
-  const cached = featureFlagRuntimeCache.get(key);
+  const cached = applicationRuntimeCache.get(key);
   if (cached) return cached;
+
   const environment = environments[environmentName];
   const runtime = await createApplicationRuntime({
     environment: environmentName,
     artifactDigest,
+    environmentRoot: environment.root,
   });
-  featureFlagRuntimeCache.set(key, runtime);
+
+  applicationRuntimeCache.set(key, runtime);
   return runtime;
 };
 
@@ -96,12 +101,6 @@ const archiveRef = (ref, destination) => {
   execFileSync('tar', ['-x', '-C', destination], { input: archive });
 };
 
-const validateFeatureFlagArtifact = (directory) => {
-  if (!existsSync(join(directory, 'flags.goff.yaml'))) {
-    throw new Error('Artifact Feature Flag configuration is missing flags.goff.yaml');
-  }
-};
-
 const clearDirectory = (directory) => {
   rmSync(directory, { recursive: true, force: true });
   mkdirSync(directory, { recursive: true });
@@ -113,7 +112,7 @@ const cleanDemoState = () => {
   rmSync(originBuildPath, { force: true });
   rmSync(stablePackagePath, { force: true });
   rmSync(dirtyPackageTagsPath, { force: true });
-  featureFlagRuntimeCache.clear();
+  applicationRuntimeCache.clear();
 };
 
 
@@ -246,7 +245,7 @@ const installArtifact = (digest, environment, metadata) => {
   clearDirectory(environment.root);
   cpSync(source, environment.root, { recursive: true });
   writeRuntimeMetadata(environment.root, canonicalArtifactMetadata(digest, metadata));
-  invalidateFeatureFlagRuntime(environment);
+  invalidateApplicationRuntime(environment);
 };
 
 const installGitRef = (ref, environment, metadata) => {
@@ -1249,6 +1248,24 @@ const staticServer = (environment, port) => createServer(async (request, respons
 
 
 
+    if (request.method === 'GET' && pathname === '/api/checkout') {
+      const environmentName = runtimeEnvironmentName(environment);
+      const artifactDigest = activeArtifactDigest(environmentName);
+      if (!artifactDigest) {
+        json(response, 404, { error: 'No immutable artifact is active in this environment' });
+        return;
+      }
+
+      const runtime = await applicationRuntimeFor(environmentName);
+      const order = await runtime.container.resolve('orderService').checkout();
+      json(response, 200, {
+        environment: environmentName,
+        artifactDigest,
+        order,
+      });
+      return;
+    }
+
     const requested = pathname === '/' ? '/index.html' : pathname;
     const file = resolve(environment.root, '.' + normalize(requested));
     const relativePath = relative(environment.root, file);
@@ -1278,6 +1295,7 @@ const staticServer = (environment, port) => createServer(async (request, respons
 });
 
 ensureDirs();
+await initializeFeatureFlags();
 runGit(['fetch', 'origin', BASE_BRANCH]);
 
 syncDevProject();
