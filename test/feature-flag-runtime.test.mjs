@@ -44,6 +44,11 @@ test('the same application service reflects a changed OpenFeature context withou
   assert.equal(order.payment.implementationId, 'legacy');
   assert.equal(order.featureFlags['payment-mode'], 'legacy');
   assert.equal(order.featureFlags['checkout-mode'], 'legacy');
+
+  await client.setContext({
+    targetingKey: 'deployforge-mock',
+    environment: 'hmg',
+  });
 });
 
 test('application runtime loads implementation code from the active artifact', async () => {
