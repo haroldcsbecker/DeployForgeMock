@@ -11,6 +11,8 @@
     "demo:reset": "curl -fsS -X POST http://127.0.0.1:8090/demo/reset -H 'Content-Type: application/json'"
   },
   "dependencies": {
-    "awilix": "13.0.5"
+    "awilix": "13.0.5",
+    "@openfeature/server-sdk": "1.23.0",
+    "@openfeature/go-feature-flag-provider": "1.4.0"
   }
 }
