@@ -8,6 +8,25 @@ This local-only runtime provides three physically separate deployment folders:
 
 DeployForge calls the control API on port 8090.
 
-HMG materializes the candidate from the frozen main SHA plus exact PR head SHAs. The resulting files are stored under artifacts/ and copied into the HMG folder.
+## HMG
 
-Production never rebuilds the code. It copies the already materialized artifact for the approved release. Rollback copies the previous artifact.
+HMG receives one current artifact composed from the current main SHA plus the selected PR heads:
+
+~~~text
+Main + PR1
+Main + PR1 + PR2 + ... + PRn
+~~~
+
+Changing the PR selection rebuilds the artifact. HMG does not maintain a historical artifact list.
+
+## Production
+
+Production receives the artifact selected by the DeployForge production flow.
+
+GMUD can reject individual PRs from a production candidate. DeployForge then rebuilds the production candidate with the remaining PRs before the final production deployment.
+
+Production history is owned by DeployForge, not by the mock runtime.
+
+## Runtime feature flags
+
+The application evaluates runtime selections through OpenFeature and GO Feature Flag. Flag configuration is external to the deployment artifact lifecycle.
