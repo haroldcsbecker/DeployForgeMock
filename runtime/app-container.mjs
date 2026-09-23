@@ -1,16 +1,33 @@
 import { createContainer, asClass, asFunction, asValue } from 'awilix';
-import { OrderService } from './order-service.mjs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { getFeatureFlagClient } from './feature-flags/open-feature.mjs';
-import { createFraudLegacy, createFraudRules } from './implementations/fraud.mjs';
-import {
-  CanaryPaymentProcessor,
-  LegacyPaymentProcessor,
-  NewPaymentProcessor,
-} from './implementations/payment-processors.mjs';
 
-export async function createApplicationRuntime({ environment, artifactDigest }) {
+const artifactModuleUrl = (root, file, digest) =>
+  pathToFileURL(join(root, 'runtime', file)).href +
+  '?artifact=' +
+  encodeURIComponent(digest);
+
+export async function createApplicationRuntime({
+  environment,
+  artifactDigest,
+  environmentRoot,
+}) {
+  const [
+    { OrderService },
+    { createFraudLegacy, createFraudRules },
+    {
+      CanaryPaymentProcessor,
+      LegacyPaymentProcessor,
+      NewPaymentProcessor,
+    },
+  ] = await Promise.all([
+    import(artifactModuleUrl(environmentRoot, 'order-service.mjs', artifactDigest)),
+    import(artifactModuleUrl(environmentRoot, 'implementations/fraud.mjs', artifactDigest)),
+    import(artifactModuleUrl(environmentRoot, 'implementations/payment-processors.mjs', artifactDigest)),
+  ]);
+
   const featureFlagClient = await getFeatureFlagClient(environment);
-
   const container = createContainer({ strict: true });
   const logger = { events: [] };
   const database = { name: 'mock-database' };
