@@ -1,0 +1,39 @@
+fraud-mode:
+  variations:
+    legacy: "legacy"
+    rule-based: "rule-based"
+  targeting:
+    - query: environment eq "hmg"
+      variation: rule-based
+  defaultRule:
+    variation: legacy
+  metadata:
+    defaultValue: "legacy"
+    description: "Selects the fraud evaluation implementation used by checkout."
+
+checkout-mode:
+  variations:
+    legacy: "legacy"
+    new: "new"
+  targeting:
+    - query: environment eq "hmg"
+      variation: new
+  defaultRule:
+    variation: legacy
+  metadata:
+    defaultValue: "legacy"
+    description: "Selects the checkout experience exposed by the application."
+
+payment-mode:
+  variations:
+    legacy: "legacy"
+    new: "new"
+    canary: "canary"
+  targeting:
+    - query: environment eq "hmg"
+      variation: canary
+  defaultRule:
+    variation: legacy
+  metadata:
+    defaultValue: "legacy"
+    description: "Selects the payment processor implementation used by checkout."
