@@ -27,6 +27,18 @@
           <strong>GO Feature Flag / OpenFeature</strong>
         </div>
         <div class="meta">
+          <span>Checkout evaluation</span>
+          <strong id="checkout-evaluation">loading…</strong>
+        </div>
+        <div class="meta">
+          <span>Payment evaluation</span>
+          <strong id="payment-evaluation">loading…</strong>
+        </div>
+        <div class="meta">
+          <span>Fraud evaluation</span>
+          <strong id="fraud-evaluation">loading…</strong>
+        </div>
+        <div class="meta">
           <span>Build</span>
           <strong id="build">loading…</strong>
         </div>
@@ -48,6 +60,24 @@
           "Feature: " + String(metadata.feature || "Deployment artifact");
       }
 
+      async function loadApplicationEvaluation() {
+        try {
+          const response = await fetch("/api/checkout", { cache: "no-store" });
+          if (!response.ok) throw new Error("checkout unavailable");
+          const payload = await response.json();
+          document.querySelector("#checkout-evaluation").textContent =
+            String(payload.order?.checkout?.implementationId || "unknown");
+          document.querySelector("#payment-evaluation").textContent =
+            String(payload.order?.payment?.implementationId || "unknown");
+          document.querySelector("#fraud-evaluation").textContent =
+            String(payload.order?.payment?.fraudImplementationId || "unknown");
+        } catch {
+          document.querySelector("#checkout-evaluation").textContent = "unavailable";
+          document.querySelector("#payment-evaluation").textContent = "unavailable";
+          document.querySelector("#fraud-evaluation").textContent = "unavailable";
+        }
+      }
+
       const render = () => {
         document.querySelector("#count").textContent = state.count;
       };
@@ -62,7 +92,10 @@
         render();
       });
 
-      void loadRuntimeMetadata().catch(() => {});
+      void Promise.all([
+        loadRuntimeMetadata(),
+        loadApplicationEvaluation(),
+      ]).catch(() => {});
 
       render();
     </script>
