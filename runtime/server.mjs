@@ -195,7 +195,7 @@ const syncDevProject = () => {
     source: 'local-checkout',
     synchronizedAt: new Date().toISOString(),
   });
-  invalidateFeatureFlagRuntime(environments.dev);
+  invalidateApplicationRuntime(environments.dev);
 };
 
 const startDevSync = () => {
@@ -259,7 +259,7 @@ const installGitRef = (ref, environment, metadata) => {
     clearDirectory(environment.root);
     cpSync(temp, environment.root, { recursive: true });
     writeRuntimeMetadata(environment.root, metadata);
-    invalidateFeatureFlagRuntime(environment);
+    invalidateApplicationRuntime(environment);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -270,7 +270,7 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
   const existingManifest = manifestPath(artifactDigest);
 
   if (existsSync(existingManifest)) {
-    validateFeatureFlagArtifact(destination);
+    
     return JSON.parse(readFileSync(existingManifest, 'utf8'));
   }
 
@@ -323,7 +323,7 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
     const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
     clearDirectory(destination);
     archiveRef(integrationSha, destination);
-    validateFeatureFlagArtifact(destination);
+    
 
     const manifest = {
       candidateId,
@@ -362,7 +362,7 @@ const createProductionArtifact = ({ repository = REPO, sourceSha, excludedShas =
   const destination = artifactDir(artifactDigest);
   const manifestPathname = manifestPath(artifactDigest);
   if (existsSync(manifestPathname)) {
-    validateFeatureFlagArtifact(destination);
+    
     return JSON.parse(readFileSync(manifestPathname, 'utf8'));
   }
 
@@ -394,13 +394,10 @@ const createProductionArtifact = ({ repository = REPO, sourceSha, excludedShas =
     const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
     clearDirectory(destination);
     archiveRef(integrationSha, destination);
-    validateFeatureFlagArtifact(destination);
+    
 
     if (!existsSync(join(destination, 'index.html'))) {
       throw new Error('Production canary failed: application entrypoint index.html is missing');
-    }
-    if (!existsSync(join(destination, 'flags.goff.yaml'))) {
-      throw new Error('Production canary failed: FeatureFlag manifest is missing');
     }
 
     const manifest = {
@@ -446,7 +443,7 @@ const createDemoRefArtifact = ({ artifactId, sourceRef, repository = REPO }) => 
 
   clearDirectory(destination);
   archiveRef(sourceSha, destination);
-  validateFeatureFlagArtifact(destination);
+  
 
   const manifest = {
     artifactId,
@@ -517,7 +514,7 @@ const createSelectiveReworkArtifact = ({
     const integrationSha = runGit(['rev-parse', 'HEAD'], temp);
     clearDirectory(artifactDestination);
     archiveRef(integrationSha, artifactDestination);
-    validateFeatureFlagArtifact(artifactDestination);
+    
     const manifest = {
       candidateId: undefined,
       batchId: undefined,
@@ -566,7 +563,7 @@ const controlServer = createServer(async (request, response) => {
 
       clearDirectory(destination);
       archiveRef(mainSha, destination);
-      validateFeatureFlagArtifact(destination);
+      
       writeFileSync(manifest, JSON.stringify({
         repository: REPO,
         baseMainSha: mainSha,
@@ -637,7 +634,7 @@ const controlServer = createServer(async (request, response) => {
       if (!existsSync(manifest)) {
         clearDirectory(destination);
         archiveRef(mainSha, destination);
-        validateFeatureFlagArtifact(destination);
+        
         writeFileSync(manifest, JSON.stringify({
           candidateId: undefined,
           batchId: undefined,
@@ -653,7 +650,7 @@ const controlServer = createServer(async (request, response) => {
         }, null, 2) + '\n', 'utf8');
       }
 
-      validateFeatureFlagArtifact(destination);
+      
 
       const metadata = {
         artifactDigest,
@@ -729,7 +726,7 @@ const controlServer = createServer(async (request, response) => {
       if (!existsSync(manifest)) {
         clearDirectory(destination);
         archiveRef(mainSha, destination);
-        validateFeatureFlagArtifact(destination);
+        
         writeFileSync(manifest, JSON.stringify({
           candidateId: undefined,
           batchId: undefined,
@@ -745,7 +742,7 @@ const controlServer = createServer(async (request, response) => {
         }, null, 2) + '\n', 'utf8');
       }
 
-      validateFeatureFlagArtifact(destination);
+      
 
       return json(response, 200, {
         integrationSha: mainSha,
@@ -1069,7 +1066,7 @@ const controlServer = createServer(async (request, response) => {
 
       clearDirectory(destination);
       archiveRef(sourceSha, destination);
-      validateFeatureFlagArtifact(destination);
+      
       writeFileSync(manifest, JSON.stringify({
         candidateId: undefined,
         batchId: undefined,
