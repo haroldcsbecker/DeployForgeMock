@@ -1,0 +1,7 @@
+retrievers:
+  - kind: file
+    path: /goff/flags.goff.yaml
+
+authorizedKeys:
+  admin:
+    - deployforge-local-admin
