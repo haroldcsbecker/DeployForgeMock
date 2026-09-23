@@ -1243,7 +1243,7 @@ const controlServer = createServer(async (request, response) => {
   }
 });
 
-const staticServer = (environment, port) => createServer((request, response) => {
+const staticServer = (environment, port) => createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent((request.url ?? '/').split('?')[0]);
 
