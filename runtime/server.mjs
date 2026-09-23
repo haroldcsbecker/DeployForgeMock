@@ -62,7 +62,7 @@ const activeArtifactDigest = (environmentName) => {
 
 const applicationRuntimeFor = async (environmentName) => {
   const artifactDigest = activeArtifactDigest(environmentName);
-  if (!artifactDigest) throw new Error('No immutable artifact is active in ' + environmentName.toUpperCase());
+  if (!artifactDigest) throw new Error('No artifact is active in ' + environmentName.toUpperCase());
 
   const key = environmentName + ':' + artifactDigest;
   const cached = applicationRuntimeCache.get(key);
@@ -231,11 +231,11 @@ const canonicalArtifactMetadata = (digest, metadata) => {
 
   return {
     ...metadata,
-    feature: isBaseArtifact ? 'Base artifact' : 'Candidate artifact',
+    feature: isBaseArtifact ? 'Base artifact' : 'HMG artifact',
     version: typeof manifest?.integrationSha === 'string'
       ? manifest.integrationSha.slice(0, 12)
       : metadata.version,
-    build: isBaseArtifact ? 'DeployForge BASE' : 'DeployForge CANDIDATE',
+    build: isBaseArtifact ? 'DeployForge BASE' : 'DeployForge HMG',
   };
 };
 
@@ -265,7 +265,7 @@ const installGitRef = (ref, environment, metadata) => {
   }
 };
 
-const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, repository, baseMainSha, prNumbers, prHeadShas }) => {
+const createHmgArtifact = ({ artifactId, artifactDigest, repository, baseMainSha, prNumbers, prHeadShas }) => {
   const destination = artifactDir(artifactDigest);
   const existingManifest = manifestPath(artifactDigest);
 
@@ -326,15 +326,14 @@ const createCandidateArtifact = ({ candidateId, batchId, artifactDigest, reposit
     
 
     const manifest = {
-      candidateId,
-      batchId,
+      artifactId,
       repository,
       baseMainSha,
       prNumbers,
       prHeadShas,
       integrationSha,
       artifactDigest,
-      immutable: true,
+      
       createdAt: new Date().toISOString(),
     };
     writeFileSync(existingManifest, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
@@ -401,15 +400,15 @@ const createProductionArtifact = ({ repository = REPO, sourceSha, excludedShas =
     }
 
     const manifest = {
-      candidateId: undefined,
-      batchId: undefined,
+      
+      
       sourceReleaseId: undefined,
       repository,
       sourceSha,
       excludedShas: normalizedExcluded,
       integrationSha,
       artifactDigest,
-      immutable: true,
+      
       source: 'production-composition',
       validationStatus: 'passed',
       canaryStatus: 'passed',
@@ -452,7 +451,7 @@ const createDemoRefArtifact = ({ artifactId, sourceRef, repository = REPO }) => 
     sourceSha,
     integrationSha: sourceSha,
     artifactDigest,
-    immutable: true,
+    
     source: 'demo',
     createdAt: new Date().toISOString(),
   };
@@ -516,8 +515,8 @@ const createSelectiveReworkArtifact = ({
     archiveRef(integrationSha, artifactDestination);
     
     const manifest = {
-      candidateId: undefined,
-      batchId: undefined,
+      
+      
       sourceReleaseId,
       repository,
       baseMainSha,
@@ -526,7 +525,7 @@ const createSelectiveReworkArtifact = ({
       excludedPrIds,
       integrationSha,
       artifactDigest,
-      immutable: true,
+      
       createdAt: new Date().toISOString(),
     };
     writeFileSync(existingManifest, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
@@ -571,7 +570,7 @@ const controlServer = createServer(async (request, response) => {
         prHeadShas: {},
         integrationSha: mainSha,
         artifactDigest,
-        immutable: true,
+        
         source: 'main',
         createdAt: new Date().toISOString(),
       }, null, 2) + '\n', 'utf8');
@@ -636,15 +635,15 @@ const controlServer = createServer(async (request, response) => {
         archiveRef(mainSha, destination);
         
         writeFileSync(manifest, JSON.stringify({
-          candidateId: undefined,
-          batchId: undefined,
+          
+          
           repository,
           baseMainSha: mainSha,
           prNumbers: [],
           prHeadShas: {},
           integrationSha: mainSha,
           artifactDigest,
-          immutable: true,
+          
           source: 'main',
           createdAt: new Date().toISOString(),
         }, null, 2) + '\n', 'utf8');
@@ -728,15 +727,15 @@ const controlServer = createServer(async (request, response) => {
         archiveRef(mainSha, destination);
         
         writeFileSync(manifest, JSON.stringify({
-          candidateId: undefined,
-          batchId: undefined,
+          
+          
           repository,
           baseMainSha: mainSha,
           prNumbers: [],
           prHeadShas: {},
           integrationSha: mainSha,
           artifactDigest,
-          immutable: true,
+          
           source: 'main',
           createdAt: new Date().toISOString(),
         }, null, 2) + '\n', 'utf8');
@@ -750,27 +749,26 @@ const controlServer = createServer(async (request, response) => {
         artifactRegistry: 'local',
         artifactRepository: repository,
         version: mainSha.slice(0, 12),
-        immutable: true,
+        
       });
     }
 
     if (request.method === 'POST' && request.url === '/artifact/build') {
       const body = await parseBody(request);
-      const candidateId = String(body.candidateId ?? '');
-      const batchId = String(body.batchId ?? '');
+      const artifactId = String(body.artifactId ?? '');
       const repository = String(body.repository ?? '');
       const baseMainSha = String(body.baseMainSha ?? '');
       const prNumbers = Array.isArray(body.prNumbers) ? body.prNumbers.map(Number) : [];
       const prHeadShas = body.prHeadShas && typeof body.prHeadShas === 'object' ? body.prHeadShas : {};
 
-      if (!candidateId || !batchId || !repository || !baseMainSha || !prNumbers.length) {
-        return json(response, 400, { error: 'candidateId, batchId, repository, baseMainSha and prNumbers are required' });
+      if (!artifactId || !repository || !baseMainSha || !prNumbers.length) {
+        return json(response, 400, { error: 'artifactId, repository, baseMainSha and prNumbers are required' });
       }
 
       const digestInput = JSON.stringify({ repository, baseMainSha, prNumbers, prHeadShas });
       const crypto = await import('node:crypto');
       const artifactDigest = 'sha256:' + crypto.createHash('sha256').update(digestInput).digest('hex');
-      const manifest = createCandidateArtifact({
+      const manifest = createHmgArtifact({
         candidateId,
         batchId,
         artifactDigest,
@@ -785,7 +783,7 @@ const controlServer = createServer(async (request, response) => {
         artifactDigest: manifest.artifactDigest,
         artifactRegistry: 'local',
         artifactRepository: repository,
-        immutable: true,
+        
       });
     }
 
@@ -803,7 +801,7 @@ const controlServer = createServer(async (request, response) => {
         artifactRegistry: 'local',
         artifactRepository: repository,
         version: manifest.integrationSha.slice(0, 12),
-        immutable: true,
+        
         validationStatus: manifest.validationStatus,
         canaryStatus: manifest.canaryStatus,
         excludedShas: manifest.excludedShas,
@@ -824,7 +822,7 @@ const controlServer = createServer(async (request, response) => {
         artifactRegistry: 'local',
         artifactRepository: repository,
         version: manifest.integrationSha.slice(0, 12),
-        immutable: true,
+        
         sourceRef: manifest.sourceRef,
       });
     }
@@ -863,13 +861,13 @@ const controlServer = createServer(async (request, response) => {
       const body = await parseBody(request);
       const preservedDevDigest = activeArtifactDigest('dev');
       const preservedProdDigest = activeArtifactDigest('prod');
-      const manifest = createCandidateArtifact(body);
+      const manifest = createHmgArtifact(body);
       const originBuild = {
-        feature: 'Candidate ' + manifest.candidateId,
+        feature: 'HMG artifact ' + manifest.artifactId,
         version: manifest.integrationSha.slice(0, 12),
-        build: manifest.candidateId,
+        build: manifest.artifactId,
         artifactDigest: manifest.artifactDigest,
-        artifactCandidateId: manifest.candidateId,
+        artifactId: manifest.artifactId,
         artifactIntegrationSha: manifest.integrationSha,
         originMainSha: manifest.baseMainSha,
         updatedAt: new Date().toISOString(),
@@ -889,7 +887,7 @@ const controlServer = createServer(async (request, response) => {
       writeOriginBuild(originBuild);
 
       return json(response, 200, {
-        deploymentId: 'hmg-' + manifest.candidateId + '-' + digestKey(manifest.artifactDigest).slice(-16),
+        deploymentId: 'hmg-' + manifest.artifactId + '-' + digestKey(manifest.artifactDigest).slice(-16),
         preservedEnvironments: {
           dev: currentDevDigest,
           prod: currentProdDigest,
@@ -917,15 +915,15 @@ const controlServer = createServer(async (request, response) => {
         clearDirectory(destination);
         archiveRef(mainSha, destination);
         writeFileSync(manifest, JSON.stringify({
-          candidateId: undefined,
-          batchId: undefined,
+          
+          
           repository,
           baseMainSha: mainSha,
           prNumbers: [],
           prHeadShas: {},
           integrationSha: mainSha,
           artifactDigest,
-          immutable: true,
+          
           createdAt: new Date().toISOString(),
         }, null, 2) + '\n', 'utf8');
       }
@@ -1068,8 +1066,8 @@ const controlServer = createServer(async (request, response) => {
       archiveRef(sourceSha, destination);
       
       writeFileSync(manifest, JSON.stringify({
-        candidateId: undefined,
-        batchId: undefined,
+        
+        
         sourceReleaseId,
         repository,
         sourceSha,
@@ -1077,7 +1075,7 @@ const controlServer = createServer(async (request, response) => {
         prHeadShas: {},
         integrationSha: sourceSha,
         artifactDigest,
-        immutable: true,
+        
         createdAt: new Date().toISOString(),
       }, null, 2) + '\n', 'utf8');
 
@@ -1249,7 +1247,7 @@ const staticServer = (environment, port) => createServer(async (request, respons
       const environmentName = runtimeEnvironmentName(environment);
       const artifactDigest = activeArtifactDigest(environmentName);
       if (!artifactDigest) {
-        json(response, 404, { error: 'No immutable artifact is active in this environment' });
+        json(response, 404, { error: 'No artifact is active in this environment' });
         return;
       }
 
@@ -1298,7 +1296,7 @@ runGit(['fetch', 'origin', BASE_BRANCH]);
 syncDevProject();
 startDevSync();
 
-// HMG and PROD intentionally start empty. Bootstrap the immutable BASE explicitly with
+// HMG and PROD intentionally start empty. Bootstrap BASE explicitly with
 // npm run demo:bootstrap-base after a clean start.
 
 Object.entries(environments).forEach(([name, environment]) => {
