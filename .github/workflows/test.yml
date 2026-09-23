@@ -17,9 +17,23 @@ jobs:
         with:
           node-version: 24
       - run: npm install
+      - name: Start GO Feature Flag
+        run: docker compose up -d go-feature-flag
+      - name: Wait for GO Feature Flag
+        run: |
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:1031/openfeature/v0/manifest >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker compose logs go-feature-flag
+          exit 1
       - id: tests
         run: npm test
-      - run: npm run feature-flag:validate
+      - name: Stop GO Feature Flag
+        if: always()
+        run: docker compose down -v
       - name: Publish DeployForge CI status
         if: always() && github.event_name == 'pull_request'
         env:
