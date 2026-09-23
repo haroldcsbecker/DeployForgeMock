@@ -227,7 +227,7 @@ const startDevSync = () => {
 
 const canonicalArtifactMetadata = (digest, metadata) => {
   const manifest = JSON.parse(readFileSync(manifestPath(digest), 'utf8'));
-  const isBaseArtifact = manifest?.source === 'main' && !manifest?.candidateId && !manifest?.sourceReleaseId;
+  const isBaseArtifact = manifest?.source === 'main' && !manifest?.artifactId && !manifest?.sourceReleaseId;
 
   return {
     ...metadata,
