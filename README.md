@@ -1,138 +1,135 @@
 # DeployForge Mock
 
-A deliberately small deployment target used to demonstrate the DeployForge workflow and runtime FeatureFlag selection.
+A deliberately small deployment target used to demonstrate the DeployForge workflow with GO Feature Flag and OpenFeature.
 
-## FeatureFlag runtime
+## Runtime feature flags
 
-There is one runtime concept: **FeatureFlag**.
+The application uses **OpenFeature** as its application-facing flag API and the official **GO Feature Flag provider** for evaluation.
 
-Registering a flag is synchronous and uses the default value until startup hydration completes:
+The runtime initializes the provider once at startup and uses **in-process evaluation**, so application evaluations do not perform a network request for every flag lookup.
 
-```js
-const paymentMode = featureFlag('payment-mode', 'legacy');
-```
-
-Application code selects the callback using the FeatureFlag's current value:
+Example:
 
 ```js
-paymentMode.select({
-  legacy: () => legacyPayment(),
-  new: () => newPayment(),
-  canary: () => canaryPayment(),
-});
+const paymentMode = await featureFlagClient.getStringValue(
+  'payment-mode',
+  'legacy',
+);
+
+const processors = {
+  legacy: legacyPaymentProcessor,
+  new: newPaymentProcessor,
+  canary: canaryPaymentProcessor,
+};
+
+const processor = processors[paymentMode] ?? legacyPaymentProcessor;
 ```
 
-Two-option behavior uses exactly the same API:
+Two-option behavior uses standard OpenFeature string or boolean evaluation. There is no custom `FeatureFlag`, Feature Switch, callback registry, runtime proxy, or flag persistence layer.
 
-```js
-const checkoutMode = featureFlag('checkout-mode', 'legacy');
+## Flags
 
-checkoutMode.select({
-  legacy: () => legacyCheckout(),
-  new: () => newCheckout(),
-});
-```
-
-Runtime changes use the same handle:
-
-```js
-await paymentMode.set('canary');
-```
-
-`set()` changes the in-memory value before awaiting storage persistence. It does not rebuild Awilix services, replace the container, or restart the application.
-
-## Initialization and storage
-
-The standalone package exposes an asynchronous initialization step:
-
-```js
-await configureFeatureFlags({ storage });
-```
-
-The core package depends on no database, HTTP client, DeployForge service, Redis client, or Awilix container. Persistence is supplied through an adapter implementing `getAll()` and `set(name, value)`.
-
-The mock runtime uses a JSON file adapter for local persistence:
-
-```
-environments/
-  hmg/feature-flags.json
-  prod/feature-flags.json
-```
-
-The registry is process-local. Separate application instances have separate in-memory values unless an external synchronization mechanism is added by the integration layer.
-
-## Package structure
-
-```
-packages/feature-flag/
-  package.json
-  src/
-    core/
-      feature-flag.mjs
-      registry.mjs
-      validation.mjs
-    index.mjs
-runtime/
-  feature-flag-file-storage.mjs
-```
-
-The package can be extracted into npm without bringing DeployForge or Awilix with it.
-
-## Available demo FeatureFlags
+Current demo flags:
 
 - `fraud-mode`: `legacy | rule-based`
 - `checkout-mode`: `legacy | new`
 - `payment-mode`: `legacy | new | canary`
 
-## Environments
+The GO Feature Flag configuration is stored in:
 
-- DEV: http://localhost:8081
-- HMG: http://localhost:8082
-- PROD: http://localhost:8083
-- deployment/FeatureFlag control API: http://localhost:8090
+```
+flags.goff.yaml
+```
 
-Run:
+The local relay proxy configuration is:
+
+```
+goff-proxy.yaml
+```
+
+HMG, Production and other contexts are selected through the OpenFeature evaluation context. The current demo uses the same targeting key and adds an `environment` attribute for targeting.
+
+## Local runtime
+
+The complete local feature-flag path is:
+
+```
+Docker Compose
+    ↓
+GO Feature Flag relay proxy :1031
+    ↓
+OpenFeature Node.js SDK
+    ↓
+GO Feature Flag provider
+    ↓
+DeployForgeMock application
+```
+
+Start GO Feature Flag:
+
+```bash
+docker compose up -d go-feature-flag
+```
+
+Then start the mock:
 
 ```bash
 npm install
 npm run demo:start
 ```
 
+The runtime exposes:
+
+- DEV application: http://localhost:8081
+- HMG application: http://localhost:8082
+- PROD application: http://localhost:8083
+- GO Feature Flag relay proxy: http://localhost:1031
+- deployment control API: http://localhost:8090
+
+The provider endpoint can be overridden with:
+
+```env
+GO_FEATURE_FLAG_ENDPOINT=http://127.0.0.1:1031/
+```
+
+The default is the local relay proxy above.
+
+## Configuration changes
+
+GO Feature Flag owns runtime configuration. Editing `flags.goff.yaml` changes the provider configuration; the Node provider polls for configuration changes while the process remains running.
+
+No DeployForge database update, artifact rebuild, container rebuild or application restart is required for a supported configuration refresh.
+
+## Deployment separation
+
+DeployForgeMock does not persist feature-flag values in `environments/*` and does not expose a custom Feature Flag REST API.
+
+DeployForge remains responsible for:
+
+- immutable artifacts
+- HMG deployment and QA
+- Production deployment
+- GMUD
+- artifact rollback
+
+GO Feature Flag remains responsible for:
+
+- flag configuration
+- variants and values
+- targeting
+- runtime evaluation
+
+Changing a flag is a runtime configuration operation, not an artifact rollback.
+
 ## Validation
 
+Run:
+
 ```bash
+docker compose up -d go-feature-flag
 npm test
 npm run demo:check
-npm run feature-flag:validate
+docker compose down -v
 ```
 
-## Runtime API
-
-Read the active FeatureFlag state:
-
-```
-GET /deployforge-feature-flags-runtime.json
-```
-
-Read an artifact FeatureFlag manifest:
-
-```
-POST /feature-flags/manifest
-```
-
-Change one environment's runtime selection:
-
-```
-POST /feature-flags/select
-
-{
-  "environment": "hmg",
-  "featureFlagId": "payment-mode",
-  "selectedValue": "canary",
-  "artifactDigest": "sha256:..."
-}
-```
-
-The selection endpoint validates the selected value against the active immutable artifact, calls `FeatureFlag.set()`, persists through the storage adapter, and reuses the existing application service.
-
-Artifact rollback remains a deployment concern. The FeatureFlag abstraction has no rollback or compensation API.
+The tests verify OpenFeature initialization, boolean and string evaluation, environment targeting, and application service behavior without dependency-container replacement.
