@@ -9,6 +9,10 @@ import {
 
 const flagsPath = new URL('../flags.goff.yaml', import.meta.url);
 
+test.after(async () => {
+  await OpenFeature.close();
+});
+
 async function waitForValue(client, key, expected, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
 
