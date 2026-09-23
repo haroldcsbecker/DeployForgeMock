@@ -6,7 +6,7 @@ A deliberately small deployment target used to demonstrate the DeployForge workf
 
 The application uses **OpenFeature** as its application-facing flag API and the official **GO Feature Flag provider** for evaluation.
 
-The runtime initializes the provider once at startup and uses **in-process evaluation**, so application evaluations do not perform a network request for every flag lookup.
+The runtime initializes the provider once at startup and uses **remote evaluation** through the GO Feature Flag relay proxy. This keeps GO Feature Flag as the runtime source of truth and makes configuration changes visible on the next evaluation without rebuilding the application.
 
 Example:
 
