@@ -12,8 +12,6 @@
         <p class="eyebrow">DeployForge Mock</p>
         <h1 id="environment">ENV</h1>
         <p id="feature">Feature: loading…</p>
-        <div id="feature-flag-banner" class="feature-flag-banner" hidden></div>
-
         <div class="counter">
           <button id="decrement" type="button">−</button>
           <strong id="count">0</strong>
@@ -25,16 +23,8 @@
           <strong id="version">loading…</strong>
         </div>
         <div class="meta">
-          <span>Fraud Feature Flag</span>
-          <strong id="fraud-strategy">loading…</strong>
-        </div>
-        <div class="meta">
-          <span>Payment Feature Flag</span>
-          <strong id="payment-strategy">loading…</strong>
-        </div>
-        <div class="meta">
-          <span>Checkout Feature Flag</span>
-          <strong id="checkout-flag">loading…</strong>
+          <span>Runtime flag provider</span>
+          <strong>GO Feature Flag / OpenFeature</strong>
         </div>
         <div class="meta">
           <span>Build</span>
@@ -44,12 +34,7 @@
     </main>
 
     <script>
-      const state = {
-        fraud: "legacy",
-        payment: "legacy",
-        checkout: false,
-        count: 0,
-      };
+      const state = { count: 0 };
 
       async function loadRuntimeMetadata() {
         const response = await fetch("/deployforge-runtime.json", { cache: "no-store" });
@@ -59,37 +44,8 @@
         document.querySelector("#version").textContent = String(metadata.version || "unknown");
         document.querySelector("#build").textContent = String(metadata.build || "unknown");
         document.body.dataset.environment = String(metadata.environment || "env").toLowerCase();
-        document.querySelector("#feature").textContent = "Feature: " + String(metadata.feature || "Deployment artifact");
-      }
-
-      async function loadFeatureFlagState() {
-        try {
-          const response = await fetch("/deployforge-feature-flags-runtime.json", { cache: "no-store" });
-          if (!response.ok) throw new Error("feature flag state unavailable");
-          const payload = await response.json();
-          const fraud = payload.featureFlags?.find((item) => item.id === "fraud-mode");
-          const payment = payload.featureFlags?.find((item) => item.id === "payment-mode");
-          const checkout = payload.featureFlags?.find((item) => item.id === "checkout-mode");
-
-          state.fraud = fraud?.selectedValue || "legacy";
-          state.payment = payment?.selectedValue || "legacy";
-          state.checkout = checkout?.selectedValue === 'new';
-
-          document.querySelector("#fraud-strategy").textContent = state.fraud;
-          document.querySelector("#payment-strategy").textContent = state.payment;
-          document.querySelector("#checkout-flag").textContent = state.checkout ? "enabled" : "disabled";
-
-          const banner = document.querySelector("#feature-flag-banner");
-          banner.hidden = false;
-          banner.textContent = state.checkout
-            ? "NEW CHECKOUT SELECTED · Feature Flag changes are visible in this runtime."
-            : "LEGACY CHECKOUT · Feature Flag selects legacy.";
-          banner.dataset.enabled = String(state.checkout);
-        } catch {
-          document.querySelector("#fraud-strategy").textContent = "unavailable";
-          document.querySelector("#payment-strategy").textContent = "unavailable";
-          document.querySelector("#checkout-flag").textContent = "unavailable";
-        }
+        document.querySelector("#feature").textContent =
+          "Feature: " + String(metadata.feature || "Deployment artifact");
       }
 
       const render = () => {
@@ -97,25 +53,16 @@
       };
 
       document.querySelector("#increment").addEventListener("click", () => {
-        const fraudDelta = state.fraud === "rule-based" ? 3 : 1;
-        const paymentDelta = state.payment === "new" || state.payment === "canary" ? 2 : 1;
-        const checkoutDelta = state.checkout ? 1 : 0;
-        state.count += fraudDelta + paymentDelta + checkoutDelta;
+        state.count += 1;
         render();
       });
 
       document.querySelector("#decrement").addEventListener("click", () => {
-        const fraudDelta = state.fraud === "rule-based" ? 3 : 1;
-        const paymentDelta = state.payment === "new" || state.payment === "canary" ? 2 : 1;
-        const checkoutDelta = state.checkout ? 1 : 0;
-        state.count -= fraudDelta + paymentDelta + checkoutDelta;
+        state.count -= 1;
         render();
       });
 
-      void Promise.all([
-        loadRuntimeMetadata(),
-        loadFeatureFlagState(),
-      ]).catch(() => {});
+      void loadRuntimeMetadata().catch(() => {});
 
       render();
     </script>
