@@ -5,7 +5,6 @@ import { join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { createApplicationRuntime } from './app-container.mjs';
-import { createFeatureFlagFileStorage } from './feature-flag-file-storage.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENV_ROOT = join(ROOT, 'environments');
@@ -36,20 +35,12 @@ const featureFlagRuntimeCache = new Map();
 const runtimeEnvironmentName = (environment) =>
   Object.entries(environments).find(([, value]) => value === environment)?.[0];
 
-const featureFlagStatePath = (environmentName) =>
-  join(ENV_ROOT, environmentName, 'feature-flags.json');
-
 const invalidateFeatureFlagRuntime = (environment) => {
   const environmentName = runtimeEnvironmentName(environment);
   if (!environmentName) return;
   for (const key of featureFlagRuntimeCache.keys()) {
     if (key.startsWith(environmentName + ':')) featureFlagRuntimeCache.delete(key);
   }
-};
-
-const writeFeatureFlagSelections = (environmentName, selections) => {
-  mkdirSync(join(ENV_ROOT, environmentName), { recursive: true });
-  writeFileSync(featureFlagStatePath(environmentName), JSON.stringify(selections, null, 2) + '\n', 'utf8');
 };
 
 const readRuntimeMetadataFor = (environmentName) => {
@@ -76,22 +67,11 @@ const featureFlagRuntimeFor = async (environmentName) => {
   if (cached) return cached;
   const environment = environments[environmentName];
   const runtime = await createApplicationRuntime({
-    environmentRoot: environment.root,
+    environment: environmentName,
     artifactDigest,
-    storage: createFeatureFlagFileStorage(featureFlagStatePath(environmentName)),
   });
   featureFlagRuntimeCache.set(key, runtime);
   return runtime;
-};
-
-const readArtifactFeatureFlagManifest = (artifactDigest) => {
-  const path = join(artifactDir(artifactDigest), 'feature-flags-manifest.json');
-  if (!existsSync(path)) throw new Error('Feature Flag manifest is not present in artifact ' + artifactDigest);
-  const manifest = JSON.parse(readFileSync(path, 'utf8'));
-  if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.featureFlags)) {
-    throw new Error('Feature Flag manifest is invalid for artifact ' + artifactDigest);
-  }
-  return manifest;
 };
 
 const readOriginBuild = () => {
@@ -117,13 +97,8 @@ const archiveRef = (ref, destination) => {
 };
 
 const validateFeatureFlagArtifact = (directory) => {
-  try {
-    execFileSync('node', ['runtime/validate-feature-flag-manifest.mjs'], { cwd: directory, stdio: 'pipe' });
-  } catch (error) {
-    const stderr = error && typeof error === 'object' && 'stderr' in error && Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8').trim() : '';
-    const stdout = error && typeof error === 'object' && 'stdout' in error && Buffer.isBuffer(error.stdout) ? error.stdout.toString('utf8').trim() : '';
-    const details = stderr || stdout || (error instanceof Error ? error.message : 'unknown Feature Flag validation error');
-    throw new Error('Artifact Feature Flag validation failed: ' + details);
+  if (!existsSync(join(directory, 'flags.goff.yaml'))) {
+    throw new Error('Artifact Feature Flag configuration is missing flags.goff.yaml');
   }
 };
 
@@ -138,7 +113,6 @@ const cleanDemoState = () => {
   rmSync(originBuildPath, { force: true });
   rmSync(stablePackagePath, { force: true });
   rmSync(dirtyPackageTagsPath, { force: true });
-  Object.keys(environments).forEach((environmentName) => rmSync(featureFlagStatePath(environmentName), { force: true }));
   featureFlagRuntimeCache.clear();
 };
 
@@ -272,9 +246,6 @@ const installArtifact = (digest, environment, metadata) => {
   clearDirectory(environment.root);
   cpSync(source, environment.root, { recursive: true });
   writeRuntimeMetadata(environment.root, canonicalArtifactMetadata(digest, metadata));
-  if (metadata.base || metadata.restartFeatureFlags) {
-    writeFeatureFlagSelections(runtimeEnvironmentName(environment), {});
-  }
   invalidateFeatureFlagRuntime(environment);
 };
 
@@ -429,7 +400,7 @@ const createProductionArtifact = ({ repository = REPO, sourceSha, excludedShas =
     if (!existsSync(join(destination, 'index.html'))) {
       throw new Error('Production canary failed: application entrypoint index.html is missing');
     }
-    if (!existsSync(join(destination, 'feature-flags-manifest.json'))) {
+    if (!existsSync(join(destination, 'flags.goff.yaml'))) {
       throw new Error('Production canary failed: FeatureFlag manifest is missing');
     }
 
@@ -618,8 +589,7 @@ const controlServer = createServer(async (request, response) => {
           artifactDigest,
           sourceMainSha: mainSha,
           base: true,
-          restartFeatureFlags: true,
-          bootstrappedAt: new Date().toISOString(),
+                    bootstrappedAt: new Date().toISOString(),
         });
       }
 
@@ -709,8 +679,7 @@ const controlServer = createServer(async (request, response) => {
           artifactDigest,
           sourceMainSha: mainSha,
           base: true,
-          restartFeatureFlags: true,
-          bootstrappedAt: metadata.bootstrappedAt,
+                    bootstrappedAt: metadata.bootstrappedAt,
         });
       }
 
@@ -879,8 +848,7 @@ const controlServer = createServer(async (request, response) => {
         build: String(body.build ?? 'demo-' + manifest.integrationSha.slice(0, 12)),
         artifactDigest,
         demoSeed: true,
-        restartFeatureFlags: Boolean(body.resetFeatureFlags),
-      });
+              });
       return json(response, 200, {
         ok: true,
         environment: body.environment,
@@ -981,8 +949,7 @@ const controlServer = createServer(async (request, response) => {
         environment: 'HMG',
         ...originBuild,
         reset: true,
-        restartFeatureFlags: true,
-        resetAt: new Date().toISOString(),
+                resetAt: new Date().toISOString(),
       });
       writeOriginBuild(originBuild);
 
@@ -1012,7 +979,7 @@ const controlServer = createServer(async (request, response) => {
         build: 'restore-' + releaseId,
         artifactDigest,
         artifactReleaseId: releaseId,
-        ...(releaseId === 'base-main' ? { base: true, restartFeatureFlags: true } : {}),
+        ...(releaseId === 'base-main' ? { base: true } : {}),
         restoredAt,
       });
 
@@ -1137,88 +1104,6 @@ const controlServer = createServer(async (request, response) => {
       });
     }
 
-    if (request.method === 'GET' && request.url === '/deployforge-feature-flags-runtime.json') {
-      const environmentName = runtimeEnvironmentName(environment);
-      const artifactDigest = activeArtifactDigest(environmentName);
-      if (!artifactDigest) return json(response, 404, { error: 'No immutable artifact is active in this environment' });
-      const manifest = readArtifactFeatureFlagManifest(artifactDigest);
-      const persisted = readFeatureFlagSelections(environmentName);
-      const featureFlags = manifest.featureFlags.map((featureFlag) => ({
-        id: featureFlag.id,
-        selectedValue: persisted[featureFlag.id] ?? featureFlag.defaultValue,
-        availableValues: featureFlag.values,
-        defaultValue: featureFlag.defaultValue,
-      }));
-      return json(response, 200, { environment: environmentName, artifactDigest, featureFlags });
-    }
-    if (request.method === 'POST' && request.url === '/feature-flags/manifest') {
-      const body = await parseBody(request);
-      const environment = body.environment === 'hmg' ? 'hmg' : body.environment === 'production' ? 'prod' : undefined;
-      if (!environment) return json(response, 400, { error: 'environment must be hmg or production' });
-
-      const currentDigest = activeArtifactDigest(environment);
-      const requestedDigest = typeof body.artifactDigest === 'string' ? body.artifactDigest : currentDigest;
-      if (!requestedDigest) return json(response, 409, { error: 'No immutable artifact is active in the requested environment' });
-      if (requestedDigest !== currentDigest && !existsSync(manifestPath(requestedDigest))) {
-        return json(response, 409, { error: 'Requested artifact is not materialized locally' });
-      }
-
-      const manifest = readArtifactFeatureFlagManifest(requestedDigest);
-      return json(response, 200, {
-        environment: body.environment,
-        artifactDigest: requestedDigest,
-        manifest,
-      });
-    }
-    if (request.method === 'POST' && request.url === '/feature-flags/select') {
-      const body = await parseBody(request);
-      const environment = body.environment === 'hmg' ? 'hmg' : body.environment === 'production' ? 'prod' : undefined;
-      const featureFlagId = typeof body.featureFlagId === 'string' ? body.featureFlagId.trim() : '';
-      const selectedValue = typeof body.selectedValue === 'string' ? body.selectedValue.trim() : '';
-      const artifactDigest = typeof body.artifactDigest === 'string' ? body.artifactDigest : '';
-      if (!environment || !featureFlagId || !selectedValue || !artifactDigest) {
-        return json(response, 400, { error: 'environment, featureFlagId, selectedValue and artifactDigest are required' });
-      }
-
-      const activeDigest = activeArtifactDigest(environment);
-      if (artifactDigest !== activeDigest) {
-        return json(response, 409, {
-          error: 'Active ' + environment.toUpperCase() + ' artifact changed; refresh DeployForge before changing the Feature Flag',
-          activeArtifactDigest: activeDigest,
-        });
-      }
-
-      const runtime = await featureFlagRuntimeFor(environment);
-      const definition = runtime.manifest.featureFlags.find((item) => item.id === featureFlagId);
-      const flag = runtime.featureFlags[featureFlagId];
-
-      if (!definition || !flag) {
-        return json(response, 404, { error: 'Feature Flag "' + featureFlagId + '" is not present in the active artifact' });
-      }
-      if (!definition.values.includes(selectedValue)) {
-        return json(response, 409, {
-          error: 'Feature Flag "' + featureFlagId + '" does not contain value "' + selectedValue + '"',
-          availableValues: definition.values,
-        });
-      }
-
-      const previousValue = flag.value;
-      const changed = previousValue !== selectedValue;
-      if (changed) await flag.set(selectedValue);
-
-      const order = runtime.container.resolve('orderService').checkout();
-      return json(response, 200, {
-        environment: body.environment,
-        artifactDigest,
-        featureFlagId,
-        previousValue,
-        selectedValue: flag.value,
-        availableValues: definition.values,
-        changed,
-        featureFlags: runtime.featureFlagRegistry.getAllFeatureFlags(),
-        order,
-      });
-    }
     
     if (request.method === 'POST' && request.url === '/hmg/ready') {
       const body = await parseBody(request);
@@ -1322,7 +1207,7 @@ const controlServer = createServer(async (request, response) => {
         version: manifest.integrationSha.slice(0, 12),
         build: releaseBuild,
         artifactDigest: body.artifactDigest,
-        ...(body.releaseId === 'base-main' ? { base: true, restartFeatureFlags: true } : {}),
+        ...(body.releaseId === 'base-main' ? { base: true } : {}),
       });
 
       const currentDevDigest = activeArtifactDigest('dev');
@@ -1362,32 +1247,6 @@ const staticServer = (environment, port) => createServer((request, response) => 
   try {
     const pathname = decodeURIComponent((request.url ?? '/').split('?')[0]);
 
-    if (request.method === 'GET' && pathname === '/deployforge-feature-flags-runtime.json') {
-      const environmentName = runtimeEnvironmentName(environment);
-      const artifactDigest = activeArtifactDigest(environmentName);
-      if (!artifactDigest) {
-        json(response, 404, { error: 'No immutable artifact is active in this environment' });
-        return;
-      }
-
-      const runtime = await featureFlagRuntimeFor(environmentName);
-      const featureFlags = runtime.manifest.featureFlags.map((definition) => {
-        const flag = runtime.featureFlags[definition.id];
-        return {
-          id: definition.id,
-          selectedValue: flag.value,
-          availableValues: definition.values,
-          defaultValue: flag.defaultValue,
-        };
-      });
-
-      json(response, 200, {
-        environment: environmentName,
-        artifactDigest,
-        featureFlags,
-      });
-      return;
-    }
 
 
     const requested = pathname === '/' ? '/index.html' : pathname;
