@@ -1,8 +1,6 @@
 export class OrderService {
   constructor({
-    paymentMode,
-    fraudMode,
-    checkoutMode,
+    featureFlagClient,
     database,
     fraudLegacy,
     fraudRules,
@@ -10,9 +8,7 @@ export class OrderService {
     newPaymentProcessor,
     canaryPaymentProcessor,
   }) {
-    this.paymentMode = paymentMode;
-    this.fraudMode = fraudMode;
-    this.checkoutMode = checkoutMode;
+    this.featureFlagClient = featureFlagClient;
     this.database = database;
     this.fraudLegacy = fraudLegacy;
     this.fraudRules = fraudRules;
@@ -21,13 +17,23 @@ export class OrderService {
     this.canaryPaymentProcessor = canaryPaymentProcessor;
   }
 
-  checkout() {
-    const fraud = this.fraudMode.select({
+  async checkout() {
+    const fraudMode = await this.featureFlagClient.getStringValue(
+      'fraud-mode',
+      'legacy',
+    );
+
+    const fraud = {
       legacy: () => this.fraudLegacy.evaluate(),
       'rule-based': () => this.fraudRules.evaluate(),
-    });
+    }[fraudMode]?.() ?? this.fraudLegacy.evaluate();
 
-    const payment = this.paymentMode.select({
+    const paymentMode = await this.featureFlagClient.getStringValue(
+      'payment-mode',
+      'legacy',
+    );
+
+    const payment = {
       legacy: () =>
         this.legacyPaymentProcessor.process({
           fraudImplementationId: fraud.implementationId,
@@ -40,21 +46,28 @@ export class OrderService {
         this.canaryPaymentProcessor.process({
           fraudImplementationId: fraud.implementationId,
         }),
+    }[paymentMode]?.() ?? this.legacyPaymentProcessor.process({
+      fraudImplementationId: fraud.implementationId,
     });
 
-    const checkout = this.checkoutMode.select({
-      legacy: () => ({ implementationId: 'legacy' }),
-      new: () => ({ implementationId: 'new' }),
-    });
+    const checkoutMode = await this.featureFlagClient.getStringValue(
+      'checkout-mode',
+      'legacy',
+    );
+
+    const checkout =
+      checkoutMode === 'new'
+        ? { implementationId: 'new' }
+        : { implementationId: 'legacy' };
 
     return {
       database: this.database.name,
       checkout,
       payment,
       featureFlags: {
-        'fraud-mode': this.fraudMode.value,
-        'payment-mode': this.paymentMode.value,
-        'checkout-mode': this.checkoutMode.value,
+        'fraud-mode': fraudMode,
+        'payment-mode': paymentMode,
+        'checkout-mode': checkoutMode,
       },
     };
   }
