@@ -769,8 +769,7 @@ const controlServer = createServer(async (request, response) => {
       const crypto = await import('node:crypto');
       const artifactDigest = 'sha256:' + crypto.createHash('sha256').update(digestInput).digest('hex');
       const manifest = createHmgArtifact({
-        candidateId,
-        batchId,
+        artifactId,
         artifactDigest,
         repository,
         baseMainSha,
