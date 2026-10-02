@@ -1,5 +1,0 @@
-{
-  "environment": "PROD",
-  "description": "Production environment for approved releases.",
-  "defaultFeature": "DeployForge release"
-}
