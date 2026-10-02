@@ -29,8 +29,6 @@ const digestKey = (digest) => digest.replace(/[^a-zA-Z0-9._-]/g, '_');
 const artifactDir = (digest) => join(ARTIFACT_ROOT, digestKey(digest));
 const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact.json');
 const originBuildPath = join(ROOT, 'origin-build.json');
-const stablePackagePath = join(ROOT, 'stable-package.json');
-const dirtyPackageTagsPath = join(ROOT, 'dirty-package-tags.json');
 const applicationRuntimeCache = new Map();
 
 const runtimeEnvironmentName = (environment) =>
@@ -110,8 +108,6 @@ const cleanDemoState = () => {
   Object.values(environments).forEach(({ root }) => clearDirectory(root));
   clearDirectory(ARTIFACT_ROOT);
   rmSync(originBuildPath, { force: true });
-  rmSync(stablePackagePath, { force: true });
-  rmSync(dirtyPackageTagsPath, { force: true });
   applicationRuntimeCache.clear();
 };
 
@@ -684,7 +680,6 @@ const controlServer = createServer(async (request, response) => {
           version: metadata.version,
           build: metadata.build,
           artifactDigest,
-          artifactCandidateId: undefined,
           artifactIntegrationSha: mainSha,
           originMainSha: mainSha,
           updatedAt: metadata.bootstrappedAt,
@@ -932,7 +927,6 @@ const controlServer = createServer(async (request, response) => {
         version: mainSha.slice(0, 12),
         build: 'origin-main-' + mainSha.slice(0, 12),
         artifactDigest,
-        artifactCandidateId: undefined,
         artifactIntegrationSha: mainSha,
         originMainSha: mainSha,
         updatedAt: new Date().toISOString(),
@@ -982,7 +976,6 @@ const controlServer = createServer(async (request, response) => {
           version: manifest.integrationSha.slice(0, 12),
           build: 'base-main-' + manifest.integrationSha.slice(0, 12),
           artifactDigest,
-          artifactCandidateId: undefined,
           artifactIntegrationSha: manifest.integrationSha,
           originMainSha: manifest.integrationSha,
           updatedAt: restoredAt,
@@ -1102,83 +1095,6 @@ const controlServer = createServer(async (request, response) => {
       const body = await parseBody(request);
       const healthy = existsSync(join(environments.hmg.root, 'deployforge-runtime.json'));
       return json(response, healthy ? 200 : 409, { ok: healthy, deploymentId: String(body.deploymentId ?? ''), healthy });
-    }
-
-    if (request.method === 'POST' && request.url === '/package/dirty') {
-      const body = await parseBody(request);
-      const packageName = String(body.packageName ?? '');
-      const dirtyTag = String(body.stableTag ?? '');
-      const version = String(body.version ?? '');
-      const releaseId = String(body.releaseId ?? '');
-      const candidateId = String(body.candidateId ?? '');
-      const artifactDigest = String(body.artifactDigest ?? '');
-      const reason = String(body.reason ?? '');
-
-      if (
-        !packageName ||
-        !/^dirty-(qa|gmud)-[a-z0-9][a-z0-9._-]{0,110}$/i.test(dirtyTag) ||
-        !artifactDigest ||
-        !existsSync(manifestPath(artifactDigest)) ||
-        !reason
-      ) {
-        return json(response, 400, { error: 'packageName, dirty tag, artifactDigest, existing artifact and reason are required' });
-      }
-
-      let existing = [];
-      if (existsSync(dirtyPackageTagsPath)) {
-        try {
-          const value = JSON.parse(readFileSync(dirtyPackageTagsPath, 'utf8'));
-          if (Array.isArray(value)) existing = value;
-        } catch {}
-      }
-
-      const tagRecord = {
-        packageName,
-        tag: dirtyTag,
-        version,
-        releaseId,
-        candidateId,
-        artifactDigest,
-        reason,
-        updatedAt: new Date().toISOString(),
-      };
-
-      existing = existing.filter((item) => !(item && item.tag === dirtyTag));
-      existing.unshift(tagRecord);
-      writeFileSync(dirtyPackageTagsPath, JSON.stringify(existing, null, 2) + '\n', 'utf8');
-
-      return json(response, 200, { ok: true, dirtyPackageTag: tagRecord });
-    }
-
-    if (request.method === 'POST' && request.url === '/package/stable') {
-      const body = await parseBody(request);
-      const packageName = String(body.packageName ?? '');
-      const stableTag = String(body.stableTag ?? 'stable');
-      const version = String(body.version ?? '');
-      const releaseId = String(body.releaseId ?? '');
-      const candidateId = String(body.candidateId ?? '');
-      const artifactDigest = String(body.artifactDigest ?? '');
-
-      if (!packageName || !releaseId || !candidateId || !artifactDigest || !existsSync(manifestPath(artifactDigest))) {
-        return json(response, 400, { error: 'packageName, releaseId, candidateId and an existing artifactDigest are required' });
-      }
-
-      const stablePackage = {
-        packageName,
-        stableTag,
-        version,
-        releaseId,
-        candidateId,
-        artifactDigest,
-        updatedAt: new Date().toISOString(),
-      };
-
-      writeFileSync(stablePackagePath, JSON.stringify(stablePackage, null, 2) + '\n', 'utf8');
-
-      return json(response, 200, {
-        ok: true,
-        stablePackage,
-      });
     }
 
     if (request.method === 'POST' && request.url === '/deploy/prod') {
