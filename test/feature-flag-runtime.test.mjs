@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { OpenFeature } from '@openfeature/server-sdk';
 import { createApplicationRuntime } from '../runtime/app-container.mjs';
+
+test.after(async () => {
+  await OpenFeature.close();
+});
 
 test('HMG application evaluates fraud, payment and checkout through OpenFeature', async () => {
   const runtime = await createApplicationRuntime({
