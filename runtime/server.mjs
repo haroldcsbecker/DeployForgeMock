@@ -1125,10 +1125,6 @@ const controlServer = createServer(async (request, response) => {
         throw new Error('Production deployment violated environment isolation: DEV/HMG changed unexpectedly');
       }
 
-      if (body.releaseId === 'base-main') {
-        rmSync(stablePackagePath, { force: true });
-      }
-
       return json(response, 200, {
         deploymentId: 'prod-' + body.releaseId + '-' + digestKey(body.artifactDigest).slice(-16),
         preservedEnvironments: {
