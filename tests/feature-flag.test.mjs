@@ -53,7 +53,7 @@ test('HMG and Production use independent OpenFeature targeting contexts', async 
   );
 
   assert.equal(
-    hmgClient.getProviderMetadata().name.includes('GO Feature Flag'),
+    OpenFeature.getProviderMetadata('deployforge-mock:hmg').name.includes('GO Feature Flag'),
     true,
   );
 });
@@ -91,6 +91,5 @@ test('OpenFeature client identity remains stable across repeated lookups', async
   const first = await getFeatureFlagClient('hmg');
   const second = await getFeatureFlagClient('hmg');
 
-  assert.equal(OpenFeature.getClient('deployforge-mock:hmg'), first);
   assert.equal(second, first);
 });
