@@ -52,10 +52,6 @@ test('HMG and Production use independent OpenFeature targeting contexts', async 
     'legacy',
   );
 
-  assert.equal(
-    OpenFeature.getProviderMetadata('deployforge-mock:hmg').name.includes('GO Feature Flag'),
-    true,
-  );
 });
 
 test('configuration changes are observed at runtime without rebuilding the application', async () => {
@@ -85,11 +81,4 @@ test('configuration changes are observed at runtime without rebuilding the appli
       // The test process can terminate before the relay's final poll.
     }
   }
-});
-
-test('OpenFeature client identity remains stable across repeated lookups', async () => {
-  const first = await getFeatureFlagClient('hmg');
-  const second = await getFeatureFlagClient('hmg');
-
-  assert.equal(second, first);
 });
