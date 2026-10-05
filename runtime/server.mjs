@@ -544,6 +544,67 @@ const parseBody = async (request) => {
   return data ? JSON.parse(data) : {};
 };
 
+const updateFeatureFlagVariation = ({ key, environment, value }) => {
+  if (!/^[A-Za-z0-9._-]+$/.test(key)) throw new Error('Invalid feature flag key');
+  if (!['hmg', 'production'].includes(environment)) {
+    throw new Error('environment must be hmg or production');
+  }
+
+  const flagsPath = join(REPO, 'flags.goff.yaml');
+  const source = readFileSync(flagsPath, 'utf8');
+  const lines = source.split(/\r?\n/);
+  const start = lines.findIndex((line) => line === key + ':');
+  if (start < 0) throw new Error('Feature flag not found: ' + key);
+
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (lines[index] && !/^\s/.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+
+  const block = lines.slice(start, end);
+  const variationsStart = block.findIndex((line) => line === '  variations:');
+  const targetingStart = block.findIndex((line) => line === '  targeting:');
+  const variationNames = [];
+  const variationEnd = targetingStart >= 0 ? targetingStart : block.length;
+
+  if (variationsStart >= 0) {
+    for (let index = variationsStart + 1; index < variationEnd; index += 1) {
+      const match = /^    ([A-Za-z0-9._-]+):/.exec(block[index]);
+      if (match) variationNames.push(match[1]);
+    }
+  }
+
+  if (!variationNames.includes(value)) {
+    throw new Error('Unsupported variation "' + value + '". Allowed: ' + variationNames.join(', '));
+  }
+
+  if (environment === 'production') {
+    const defaultRuleStart = block.findIndex((line) => line === '  defaultRule:');
+    if (defaultRuleStart < 0 || !block[defaultRuleStart + 1]?.startsWith('    variation:')) {
+      throw new Error('Production default rule is not configured for ' + key);
+    }
+    block[defaultRuleStart + 1] = '    variation: ' + value;
+  } else {
+    const queryIndex = block.findIndex((line) => line === '    - query: environment eq "hmg"');
+    if (queryIndex < 0 || !block[queryIndex + 1]?.startsWith('      variation:')) {
+      throw new Error('HMG targeting rule is not configured for ' + key);
+    }
+    block[queryIndex + 1] = '      variation: ' + value;
+  }
+
+  lines.splice(start, end - start, ...block);
+  writeFileSync(flagsPath, lines.join('\n'), 'utf8');
+
+  return {
+    key,
+    environment,
+    value,
+  };
+};
+
 const controlServer = createServer(async (request, response) => {
   try {
     if (request.method === 'POST' && request.url === '/demo/reset') {
@@ -1135,6 +1196,23 @@ const controlServer = createServer(async (request, response) => {
     }
 
 
+
+    if (request.method === 'POST' && request.url === '/feature-flags/update') {
+      const body = await parseBody(request);
+      const key = String(body.key ?? '');
+      const environment = String(body.environment ?? '');
+      const value = String(body.value ?? '');
+      if (!key || !environment || !value) {
+        return json(response, 400, { error: 'key, environment and value are required' });
+      }
+
+      try {
+        const updated = updateFeatureFlagVariation({ key, environment, value });
+        return json(response, 200, { ok: true, ...updated });
+      } catch (error) {
+        return json(response, 409, { error: error instanceof Error ? error.message : 'Unable to update feature flag' });
+      }
+    }
 
     if (request.method === 'POST' && request.url === '/prod/health') {
       const body = await parseBody(request);
