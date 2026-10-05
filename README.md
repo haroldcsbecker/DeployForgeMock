@@ -119,3 +119,7 @@ docker compose down -v
 ~~~
 
 The tests verify OpenFeature initialization, string and boolean evaluation, environment targeting, runtime configuration refresh, and application service behavior.
+
+## Local flag editing
+
+The control API exposes `POST /feature-flags/update` for the DeployForge local UI. It edits `flags.goff.yaml`; the relay proxy polls that file and applies the new targeting value without restarting.
