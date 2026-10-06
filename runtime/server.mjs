@@ -119,8 +119,14 @@ const archiveRef = (ref, destination) => {
 };
 
 const clearDirectory = (directory) => {
-  rmSync(directory, { recursive: true, force: true });
-  mkdirSync(directory, { recursive: true });
+  const resolvedDirectory = resolve(directory);
+  const resolvedRoot = resolve(ROOT);
+  if (resolvedDirectory === resolvedRoot || resolvedDirectory === resolve(REPO)) {
+    throw new Error('Refusing to clear the project root');
+  }
+
+  rmSync(resolvedDirectory, { recursive: true, force: true });
+  mkdirSync(resolvedDirectory, { recursive: true });
 };
 
 const cleanDemoState = () => {
