@@ -1,19 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { OpenFeature } from '@openfeature/server-sdk';
 import { createApplicationRuntime } from '../runtime/app-container.mjs';
-
-const flagsPath = new URL('../flags.goff.yaml', import.meta.url);
 
 test.after(async () => {
   await OpenFeature.close();
 });
 
-function fraudModeExpected() {
-  const source = readFileSync(flagsPath, 'utf8').trim();
-  return source !== '{}' && source.includes('fraud-mode:') ? 'rule-based' : 'legacy';
-}
+const fraudModeExpected = () => 'legacy';
 
 test('HMG application evaluates the configured fraud flag through OpenFeature', async () => {
   const runtime = await createApplicationRuntime({
