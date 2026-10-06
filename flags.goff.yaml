@@ -1,1 +1,30 @@
-{}
+fraud-mode:
+  variations:
+    legacy: legacy
+    rule-based: rule-based
+  defaultRule:
+    variation: legacy
+  targeting:
+    - query: environment eq "hmg"
+      variation: rule-based
+
+checkout-mode:
+  variations:
+    legacy: legacy
+    new: new
+  defaultRule:
+    variation: legacy
+  targeting:
+    - query: environment eq "hmg"
+      variation: legacy
+
+payment-mode:
+  variations:
+    legacy: legacy
+    new: new
+    canary: canary
+  defaultRule:
+    variation: legacy
+  targeting:
+    - query: environment eq "hmg"
+      variation: legacy
