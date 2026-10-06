@@ -7,7 +7,7 @@
     "test": "node --test",
     "demo:start": "node runtime/server.mjs",
     "demo:check": "node --check runtime/server.mjs",
-    "demo:reset": "curl -fsS -X POST http://127.0.0.1:8090/demo/reset -H 'Content-Type: application/json'",
+    "demo:reset": "node scripts/demo-reset-all.mjs",
     "verify:reset": "node scripts/verify-reset-artifacts.mjs"
   },
   "dependencies": {
