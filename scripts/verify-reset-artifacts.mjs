@@ -25,3 +25,5 @@ assert.match(cleanSource, /clearDirectory\(environments\.hmg\.root\)/);
 assert.match(cleanSource, /clearDirectory\(environments\.prod\.root\)/);
 assert.doesNotMatch(cleanSource, /clearDirectory\(DEV_ROOT\)/);
 assert.doesNotMatch(cleanSource, /clearDirectory\(REPO\)/);
+assert.match(cleanSource, /Refusing to clear the project root/);
+assert.match(cleanSource, /resolve\(directory\)/);
