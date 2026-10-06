@@ -124,7 +124,10 @@ const clearDirectory = (directory) => {
 };
 
 const cleanDemoState = () => {
-  Object.values(environments).forEach(({ root }) => clearDirectory(root));
+  // Never reset DEV: DEV_ROOT is the real project checkout and contains .git.
+  // Demo reset owns only generated runtime state.
+  clearDirectory(environments.hmg.root);
+  clearDirectory(environments.prod.root);
   clearDirectory(ARTIFACT_ROOT);
   rmSync(originBuildPath, { force: true });
   applicationRuntimeCache.clear();
