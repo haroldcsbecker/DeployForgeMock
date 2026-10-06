@@ -31,6 +31,67 @@ const digestKey = (digest) => digest.replace(/[^a-zA-Z0-9._-]/g, '_');
 const artifactDir = (digest) => join(ARTIFACT_ROOT, digestKey(digest));
 const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact.json');
 const originBuildPath = join(ROOT, 'origin-build.json');
+const DEFAULT_FEATURE_FLAG_DEFINITIONS = {
+  'fraud-mode': [
+    'fraud-mode:',
+    '  variations:',
+    '    legacy: legacy',
+    '    rule-based: rule-based',
+    '  defaultRule:',
+    '    variation: legacy',
+    '  targeting:',
+    '    - query: environment eq "hmg"',
+    '      variation: legacy',
+  ],
+  'checkout-mode': [
+    'checkout-mode:',
+    '  variations:',
+    '    legacy: legacy',
+    '    new: new',
+    '  defaultRule:',
+    '    variation: legacy',
+    '  targeting:',
+    '    - query: environment eq "hmg"',
+    '      variation: legacy',
+  ],
+  'payment-mode': [
+    'payment-mode:',
+    '  variations:',
+    '    legacy: legacy',
+    '    new: new',
+    '    canary: canary',
+    '  defaultRule:',
+    '    variation: legacy',
+    '  targeting:',
+    '    - query: environment eq "hmg"',
+    '      variation: legacy',
+  ],
+};
+
+const featureFlagConfigPath = join(REPO, 'flags.goff.yaml');
+
+const registerFeatureFlags = () => {
+  let source = existsSync(featureFlagConfigPath)
+    ? readFileSync(featureFlagConfigPath, 'utf8')
+    : '{}\n';
+
+  const present = new Set(
+    [...source.matchAll(/^([A-Za-z0-9._-]+):\s*$/gm)].map((match) => match[1]),
+  );
+
+  const additions = Object.entries(DEFAULT_FEATURE_FLAG_DEFINITIONS)
+    .filter(([key]) => !present.has(key))
+    .map(([, lines]) => lines.join('\n'))
+    .join('\n\n');
+
+  if (!additions) return false;
+
+  const trimmed = source.trim();
+  source = (trimmed === '{}' || !trimmed ? additions + '\n' : trimmed + '\n\n' + additions + '\n');
+  writeFileSync(featureFlagConfigPath, source, 'utf8');
+  return true;
+};
+
 const applicationRuntimeCache = new Map();
 
 const runGit = (args, cwd = REPO) =>
@@ -939,6 +1000,7 @@ const controlServer = createServer(async (request, response) => {
       const preservedDevDigest = activeArtifactDigest('dev');
       const preservedProdDigest = activeArtifactDigest('prod');
       const manifest = createHmgArtifact(body);
+      registerFeatureFlags();
       const originBuild = {
         feature: 'HMG artifact ' + manifest.artifactId,
         version: manifest.integrationSha.slice(0, 12),
@@ -1307,6 +1369,7 @@ const staticServer = (environment, port) => createServer(async (request, respons
 });
 
 ensureDirs();
+registerFeatureFlags();
 await initializeFeatureFlags();
 runGit(['fetch', 'origin', BASE_BRANCH]);
 
