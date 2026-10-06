@@ -41,7 +41,7 @@ const DEFAULT_FEATURE_FLAG_DEFINITIONS = {
     '    variation: legacy',
     '  targeting:',
     '    - query: environment eq "hmg"',
-    '      variation: legacy',
+    '      variation: rule-based',
   ],
   'checkout-mode': [
     'checkout-mode:',
