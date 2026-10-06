@@ -122,7 +122,7 @@ const clearDirectory = (directory) => {
   const resolvedDirectory = resolve(directory);
   const resolvedRoot = resolve(ROOT);
   if (resolvedDirectory === resolvedRoot || resolvedDirectory === resolve(REPO)) {
-    throw new Error('Refusing to clear the project root');
+    return;
   }
 
   rmSync(resolvedDirectory, { recursive: true, force: true });
