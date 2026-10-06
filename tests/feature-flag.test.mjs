@@ -98,7 +98,7 @@ payment-mode:
     existingSource: registered,
   });
 
-  assert.equal(cleared, '{}\\n');
+  assert.equal(cleared, '{}\n');
 });
 
 test('deployed definitions do not overwrite existing QA flag values when the variation still exists', () => {
