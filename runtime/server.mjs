@@ -68,7 +68,7 @@ const DEFAULT_FEATURE_FLAG_DEFINITIONS = {
   ],
 };
 
-const featureFlagConfigPath = join(REPO, 'flags.goff.yaml');
+const featureFlagConfigPath = join(ROOT, 'flags.goff.yaml');
 
 const registerFeatureFlags = () => {
   let source = existsSync(featureFlagConfigPath)
@@ -633,7 +633,7 @@ const updateFeatureFlagVariation = ({ key, environment, value }) => {
     throw new Error('environment must be hmg or production');
   }
 
-  const flagsPath = join(REPO, 'flags.goff.yaml');
+  const flagsPath = join(ROOT, 'flags.goff.yaml');
   const source = readFileSync(flagsPath, 'utf8');
   const lines = source.split(/\r?\n/);
   const start = lines.findIndex((line) => line === key + ':');
