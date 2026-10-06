@@ -1,17 +1,19 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
-test("mock deployment environments are represented by the runtime directories", () => {
-  assert.equal(fs.existsSync("environments/dev"), true);
-  assert.equal(fs.existsSync("environments/hmg"), true);
-  assert.equal(fs.existsSync("environments/prod"), true);
-  assert.equal(fs.existsSync("Dockerfile"), true);
+test('DEV is not a deployed environment directory', () => {
+  assert.equal(fs.existsSync('environments/dev'), false);
 });
 
-test("mock interface exposes deploy metadata", () => {
-  const html = fs.readFileSync("index.html", "utf8");
-  assert.match(html, /environment/);
-  assert.match(html, /feature/);
-  assert.match(html, /build/);
+test('HMG and PROD have materialization targets', () => {
+  assert.equal(fs.existsSync('environments/hmg'), true);
+  assert.equal(fs.existsSync('environments/prod'), true);
+});
+
+test('runtime server contains baseline bootstrap for deployed environments', () => {
+  const source = fs.readFileSync('runtime/server.mjs', 'utf8');
+  assert.match(source, /bootstrapDeployedEnvironments/);
+  assert.match(source, /feature: 'Base main'/);
+  assert.match(source, /findLatestArtifact/);
 });
