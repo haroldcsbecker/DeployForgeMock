@@ -1,1 +1,12 @@
-{}
+fraud-mode:
+  variations:
+    legacy: "legacy"
+    rule-based: "rule-based"
+  targeting:
+    - query: environment eq "hmg"
+      variation: rule-based
+  defaultRule:
+    variation: legacy
+  metadata:
+    defaultValue: "legacy"
+    description: "Selects the fraud evaluation implementation used by checkout."
