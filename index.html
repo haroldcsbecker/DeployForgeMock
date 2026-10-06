@@ -27,6 +27,10 @@
           <strong>GO Feature Flag / OpenFeature</strong>
         </div>
         <div class="meta">
+          <span>PR #76 feature test</span>
+          <strong id="pr-76-flag">loading…</strong>
+        </div>
+        <div class="meta">
           <span>Checkout evaluation</span>
           <strong id="checkout-evaluation">loading…</strong>
         </div>
@@ -69,8 +73,11 @@
             String(payload.order?.checkout?.implementationId || "unknown");
           document.querySelector("#payment-evaluation").textContent =
             String(payload.order?.payment?.implementationId || "unknown");
+          const fraudMode = payload.order?.featureFlags?.["fraud-mode"];
           document.querySelector("#fraud-evaluation").textContent =
             String(payload.order?.payment?.fraudImplementationId || "unknown");
+          document.querySelector("#pr-76-flag").textContent =
+            "fraud-mode = " + String(fraudMode || "unknown");
         } catch {
           document.querySelector("#checkout-evaluation").textContent = "unavailable";
           document.querySelector("#payment-evaluation").textContent = "unavailable";
