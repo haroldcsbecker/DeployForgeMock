@@ -98,3 +98,14 @@ test('configuration changes are observed at runtime without rebuilding the appli
     }
   }
 });
+
+
+test('HMG deployment registry defines the runtime feature flags', () => {
+  const source = readFileSync(flagsPath, 'utf8');
+  assert.match(source, /^fraud-mode:/m);
+  assert.match(source, /^checkout-mode:/m);
+  assert.match(source, /^payment-mode:/m);
+  assert.match(source, /rule-based: rule-based/);
+  assert.match(source, /new: new/);
+  assert.match(source, /canary: canary/);
+});
