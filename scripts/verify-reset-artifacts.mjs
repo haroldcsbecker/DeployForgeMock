@@ -17,3 +17,11 @@ assert.ok(clearOriginIndex >= 0, 'origin-build marker is not cleared');
 assert.ok(createManifestIndex > clearArtifactsIndex, 'BASE manifest must be created after artifact cleanup');
 
 process.stdout.write('local artifact reset verification passed\n');
+
+
+const cleanSource = source.slice(0, resetIndex);
+assert.doesNotMatch(cleanSource, /Object\.values\(environments\)\.forEach\(\(\{ root \}\) => clearDirectory\(root\)\)/);
+assert.match(cleanSource, /clearDirectory\(environments\.hmg\.root\)/);
+assert.match(cleanSource, /clearDirectory\(environments\.prod\.root\)/);
+assert.doesNotMatch(cleanSource, /clearDirectory\(DEV_ROOT\)/);
+assert.doesNotMatch(cleanSource, /clearDirectory\(REPO\)/);
