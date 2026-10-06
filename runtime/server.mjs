@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { createApplicationRuntime } from './app-container.mjs';
 import { initializeFeatureFlags } from './feature-flags/open-feature.mjs';
+import { buildFeatureFlagRegistry } from './feature-flags/registry.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENV_ROOT = join(ROOT, 'environments');
@@ -31,65 +32,34 @@ const digestKey = (digest) => digest.replace(/[^a-zA-Z0-9._-]/g, '_');
 const artifactDir = (digest) => join(ARTIFACT_ROOT, digestKey(digest));
 const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact.json');
 const originBuildPath = join(ROOT, 'origin-build.json');
-const DEFAULT_FEATURE_FLAG_DEFINITIONS = {
-  'fraud-mode': [
-    'fraud-mode:',
-    '  variations:',
-    '    legacy: legacy',
-    '    rule-based: rule-based',
-    '  defaultRule:',
-    '    variation: legacy',
-    '  targeting:',
-    '    - query: environment eq "hmg"',
-    '      variation: rule-based',
-  ],
-  'checkout-mode': [
-    'checkout-mode:',
-    '  variations:',
-    '    legacy: legacy',
-    '    new: new',
-    '  defaultRule:',
-    '    variation: legacy',
-    '  targeting:',
-    '    - query: environment eq "hmg"',
-    '      variation: legacy',
-  ],
-  'payment-mode': [
-    'payment-mode:',
-    '  variations:',
-    '    legacy: legacy',
-    '    new: new',
-    '    canary: canary',
-    '  defaultRule:',
-    '    variation: legacy',
-    '  targeting:',
-    '    - query: environment eq "hmg"',
-    '      variation: legacy',
-  ],
-};
-
 const featureFlagConfigPath = join(ROOT, 'flags.goff.yaml');
 
-const registerFeatureFlags = () => {
-  let source = existsSync(featureFlagConfigPath)
+const readDeployedFeatureFlagSource = (environmentName) => {
+  const deployedPath = join(environments[environmentName].root, 'flags.goff.yaml');
+  return existsSync(deployedPath) ? readFileSync(deployedPath, 'utf8') : '{}\n';
+};
+
+const syncFeatureFlagsFromDeployments = (preferredEnvironment = 'hmg') => {
+  const order = preferredEnvironment === 'prod'
+    ? ['prod', 'hmg']
+    : ['hmg', 'prod'];
+
+  const nextSource = buildFeatureFlagRegistry({
+    deployedSources: order.map(readDeployedFeatureFlagSource),
+    existingSource: existsSync(featureFlagConfigPath)
+      ? readFileSync(featureFlagConfigPath, 'utf8')
+      : '{}\n',
+  });
+
+  const currentSource = existsSync(featureFlagConfigPath)
     ? readFileSync(featureFlagConfigPath, 'utf8')
     : '{}\n';
 
-  const present = new Set(
-    [...source.matchAll(/^([A-Za-z0-9._-]+):\s*$/gm)].map((match) => match[1]),
-  );
+  if (currentSource.replace(/\r\n/g, '\n') !== nextSource) {
+    writeFileSync(featureFlagConfigPath, nextSource, 'utf8');
+  }
 
-  const additions = Object.entries(DEFAULT_FEATURE_FLAG_DEFINITIONS)
-    .filter(([key]) => !present.has(key))
-    .map(([, lines]) => lines.join('\n'))
-    .join('\n\n');
-
-  if (!additions) return false;
-
-  const trimmed = source.trim();
-  source = (trimmed === '{}' || !trimmed ? additions + '\n' : trimmed + '\n\n' + additions + '\n');
-  writeFileSync(featureFlagConfigPath, source, 'utf8');
-  return true;
+  return nextSource;
 };
 
 const applicationRuntimeCache = new Map();
@@ -830,6 +800,10 @@ const controlServer = createServer(async (request, response) => {
         });
       }
 
+      syncFeatureFlagsFromDeployments(
+        target === 'prod' ? 'prod' : 'hmg',
+      );
+
       return json(response, 200, {
         ok: true,
         artifactDigest,
@@ -1000,7 +974,6 @@ const controlServer = createServer(async (request, response) => {
       const preservedDevDigest = activeArtifactDigest('dev');
       const preservedProdDigest = activeArtifactDigest('prod');
       const manifest = createHmgArtifact(body);
-      registerFeatureFlags();
       const originBuild = {
         feature: 'HMG artifact ' + manifest.artifactId,
         version: manifest.integrationSha.slice(0, 12),
@@ -1016,6 +989,7 @@ const controlServer = createServer(async (request, response) => {
         environment: 'HMG',
         ...originBuild,
       });
+      syncFeatureFlagsFromDeployments('hmg');
 
       const currentDevDigest = activeArtifactDigest('dev');
       const currentProdDigest = activeArtifactDigest('prod');
@@ -1088,6 +1062,7 @@ const controlServer = createServer(async (request, response) => {
                 resetAt: new Date().toISOString(),
       });
       writeOriginBuild(originBuild);
+      syncFeatureFlagsFromDeployments('hmg');
 
       return json(response, 200, {
         deploymentId: 'hmg-reset-' + mainSha.slice(0, 12),
@@ -1130,6 +1105,7 @@ const controlServer = createServer(async (request, response) => {
           updatedAt: restoredAt,
         });
       }
+      syncFeatureFlagsFromDeployments('hmg');
 
       return json(response, 200, {
         deploymentId: 'hmg-restore-' + releaseId + '-' + digestKey(artifactDigest).slice(-12),
@@ -1139,6 +1115,7 @@ const controlServer = createServer(async (request, response) => {
 
     if (request.method === 'POST' && request.url === '/deploy/hmg/remove') {
       clearDirectory(environments.hmg.root);
+      syncFeatureFlagsFromDeployments('hmg');
       return json(response, 200, { ok: true, removed: true });
     }
 
@@ -1173,6 +1150,7 @@ const controlServer = createServer(async (request, response) => {
         excludedPrIds,
         rebuiltAt: new Date().toISOString(),
       });
+      syncFeatureFlagsFromDeployments('hmg');
 
       return json(response, 200, {
         artifactDigest: manifest.artifactDigest,
@@ -1229,6 +1207,7 @@ const controlServer = createServer(async (request, response) => {
         artifactReleaseId: sourceReleaseId,
         rebuiltAt: new Date().toISOString(),
       });
+      syncFeatureFlagsFromDeployments('hmg');
 
       return json(response, 200, {
         artifactDigest,
@@ -1273,6 +1252,7 @@ const controlServer = createServer(async (request, response) => {
       if (currentDevDigest !== preservedDevDigest || currentHmgDigest !== preservedHmgDigest) {
         throw new Error('Production deployment violated environment isolation: DEV/HMG changed unexpectedly');
       }
+      syncFeatureFlagsFromDeployments('prod');
 
       return json(response, 200, {
         deploymentId: 'prod-' + body.releaseId + '-' + digestKey(body.artifactDigest).slice(-16),
@@ -1367,8 +1347,6 @@ const staticServer = (environment, port) => createServer(async (request, respons
 });
 
 ensureDirs();
-registerFeatureFlags();
-await initializeFeatureFlags();
 runGit(['fetch', 'origin', BASE_BRANCH]);
 
 // DEV is the project root; HMG and PROD are deployed environment folders.
@@ -1376,6 +1354,8 @@ runGit(['fetch', 'origin', BASE_BRANCH]);
 // materialize the current main revision as the BASE release.
 
 bootstrapDeployedEnvironments();
+syncFeatureFlagsFromDeployments('hmg');
+await initializeFeatureFlags();
 
 Object.entries(environments).forEach(([name, environment]) => {
   staticServer(environment, environment.port).listen(environment.port, '127.0.0.1', () => {
