@@ -1298,66 +1298,6 @@ runGit(['fetch', 'origin', BASE_BRANCH]);
 // DEV is the project root; HMG and PROD are deployed environment folders.
 // On startup, restore the latest materialized release. If none exists,
 // materialize the current main revision as the BASE release.
-const bootstrapDeployedEnvironments = () => {
-  const latest = findLatestArtifact();
-
-  if (latest?.artifactDigest && existsSync(manifestPath(latest.artifactDigest))) {
-    const manifest = JSON.parse(readFileSync(manifestPath(latest.artifactDigest), 'utf8'));
-
-    for (const environmentName of ['hmg', 'prod']) {
-      const environment = environments[environmentName];
-      installArtifact(latest.artifactDigest, environment, {
-        environment: environmentName.toUpperCase(),
-        feature: latest.source === 'main' ? 'Base main' : 'Latest release',
-        version: manifest.integrationSha.slice(0, 12),
-        build: latest.source === 'main'
-          ? 'base-main-' + manifest.integrationSha.slice(0, 12)
-          : 'latest-' + manifest.integrationSha.slice(0, 12),
-        artifactDigest: latest.artifactDigest,
-        ...(latest.source === 'main' ? { base: true } : {}),
-        restoredAt: new Date().toISOString(),
-      });
-    }
-
-    return;
-  }
-
-  const mainSha = runGit(['rev-parse', 'origin/' + BASE_BRANCH]);
-  const artifactDigest = 'sha256:' + createHash('sha256')
-    .update(JSON.stringify({ type: 'base', repository: REPO, mainSha }))
-    .digest('hex');
-  const destination = artifactDir(artifactDigest);
-  const manifest = manifestPath(artifactDigest);
-
-  if (!existsSync(manifest)) {
-    clearDirectory(destination);
-    archiveRef(mainSha, destination);
-    writeFileSync(manifest, JSON.stringify({
-      repository: REPO,
-      baseMainSha: mainSha,
-      prNumbers: [],
-      prHeadShas: {},
-      integrationSha: mainSha,
-      artifactDigest,
-      source: 'main',
-      createdAt: new Date().toISOString(),
-    }, null, 2) + '\n', 'utf8');
-  }
-
-  for (const environmentName of ['hmg', 'prod']) {
-    const environment = environments[environmentName];
-    installArtifact(artifactDigest, environment, {
-      environment: environmentName.toUpperCase(),
-      feature: 'Base main',
-      version: mainSha.slice(0, 12),
-      build: 'base-main-' + mainSha.slice(0, 12),
-      artifactDigest,
-      sourceMainSha: mainSha,
-      base: true,
-      restoredAt: new Date().toISOString(),
-    });
-  }
-};
 
 bootstrapDeployedEnvironments();
 
