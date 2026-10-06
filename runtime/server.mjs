@@ -11,18 +11,20 @@ const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENV_ROOT = join(ROOT, 'environments');
 const ARTIFACT_ROOT = join(ROOT, 'artifacts');
 const REPO = process.env.DEPLOYFORGE_MOCK_PROJECT_PATH ? resolve(process.env.DEPLOYFORGE_MOCK_PROJECT_PATH) : ROOT;
+const DEV_ROOT = REPO;
 const API_PORT = Number(process.env.DEPLOYFORGE_MOCK_CONTROL_PORT ?? 8090);
 const BASE_BRANCH = process.env.DEPLOYFORGE_MOCK_BASE_BRANCH ?? 'main';
 
 const environments = {
-  dev: { port: 8081, root: join(ENV_ROOT, 'dev', 'current') },
+  dev: { port: 8081, root: DEV_ROOT },
   hmg: { port: 8082, root: join(ENV_ROOT, 'hmg', 'current') },
   prod: { port: 8083, root: join(ENV_ROOT, 'prod', 'current') },
 };
 
 const ensureDirs = () => {
   mkdirSync(ARTIFACT_ROOT, { recursive: true });
-  Object.values(environments).forEach(({ root }) => mkdirSync(root, { recursive: true }));
+  mkdirSync(environments.hmg.root, { recursive: true });
+  mkdirSync(environments.prod.root, { recursive: true });
 };
 
 const digestKey = (digest) => digest.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -30,6 +32,9 @@ const artifactDir = (digest) => join(ARTIFACT_ROOT, digestKey(digest));
 const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact.json');
 const originBuildPath = join(ROOT, 'origin-build.json');
 const applicationRuntimeCache = new Map();
+
+const runGit = (args, cwd = REPO) =>
+  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 
 const runtimeEnvironmentName = (environment) =>
   Object.entries(environments).find(([, value]) => value === environment)?.[0];
@@ -53,7 +58,21 @@ const readRuntimeMetadataFor = (environmentName) => {
   }
 };
 
+const localDevDigest = () =>
+  'local:' + createHash('sha256')
+    .update(runGit(['rev-parse', 'HEAD']) + '\n' + runGit(['status', '--porcelain=v1']))
+    .digest('hex');
+
+const localDevMetadata = () => ({
+  environment: 'DEV',
+  feature: 'Local working tree',
+  version: runGit(['rev-parse', '--short', 'HEAD']),
+  build: 'DeployForge DEV',
+  source: 'local-checkout',
+});
+
 const activeArtifactDigest = (environmentName) => {
+  if (environmentName === 'dev') return localDevDigest();
   const metadata = readRuntimeMetadataFor(environmentName);
   return typeof metadata?.artifactDigest === 'string' ? metadata.artifactDigest : undefined;
 };
@@ -91,7 +110,7 @@ const writeOriginBuild = (metadata) => {
   writeFileSync(originBuildPath, JSON.stringify(metadata, null, 2) + '\n', 'utf8');
 };
 
-const runGit = (args, cwd = REPO) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+
 
 const archiveRef = (ref, destination) => {
   mkdirSync(destination, { recursive: true });
@@ -152,73 +171,67 @@ const readHmgRuntimeMetadata = () => {
 
 const resolveOriginBuild = () => readOriginBuild() ?? readHmgRuntimeMetadata() ?? findLatestArtifact();
 
-const localDevExcluded = new Set(['.git', '.next', 'node_modules', 'environments', 'artifacts', '.runtime-worktrees', '.env', '.env.local', '.env.development', '.env.production', '.env.test']);
+const bootstrapDeployedEnvironments = () => {
+  const latest = findLatestArtifact();
 
-const localDevFingerprint = () => [
-  runGit(['rev-parse', 'HEAD']),
-  runGit(['status', '--porcelain=v1']),
-].join('\\n');
+  if (latest?.artifactDigest && existsSync(manifestPath(latest.artifactDigest))) {
+    const manifest = JSON.parse(readFileSync(manifestPath(latest.artifactDigest), 'utf8'));
 
-const copyLocalProject = (source, destination) => {
-  clearDirectory(destination);
-  for (const entry of readdirSync(source, { withFileTypes: true })) {
-    if (localDevExcluded.has(entry.name)) continue;
-    const sourcePath = join(source, entry.name);
-    const destinationPath = join(destination, entry.name);
-    if (entry.isDirectory()) copyLocalProject(sourcePath, destinationPath);
-    else {
-      mkdirSync(resolve(destinationPath, '..'), { recursive: true });
-      cpSync(sourcePath, destinationPath);
+    for (const environmentName of ['hmg', 'prod']) {
+      const environment = environments[environmentName];
+      const current = readRuntimeMetadataFor(environmentName);
+      if (current?.artifactDigest === latest.artifactDigest) continue;
+
+      installArtifact(latest.artifactDigest, environment, {
+        environment: environmentName.toUpperCase(),
+        feature: latest.source === 'main' ? 'Base main' : 'Latest release',
+        version: manifest.integrationSha.slice(0, 12),
+        build: latest.source === 'main'
+          ? 'base-main-' + manifest.integrationSha.slice(0, 12)
+          : 'latest-' + manifest.integrationSha.slice(0, 12),
+        artifactDigest: latest.artifactDigest,
+        ...(latest.source === 'main' ? { base: true } : {}),
+        restoredAt: new Date().toISOString(),
+      });
     }
+    return;
   }
-};
 
-const syncDevProject = () => {
-  // DEV is the developer feedback environment and intentionally follows the
-  // local working tree, including uncommitted code changes.
-  const fingerprint = localDevFingerprint();
-  const current = readRuntimeMetadataFor('dev');
-  if (current?.sourceLocalFingerprint === fingerprint && existsSync(join(environments.dev.root, 'index.html'))) return;
+  const mainSha = runGit(['rev-parse', 'origin/' + BASE_BRANCH]);
+  const artifactDigest = 'sha256:' + createHash('sha256')
+    .update(JSON.stringify({ type: 'base', repository: REPO, mainSha }))
+    .digest('hex');
+  const destination = artifactDir(artifactDigest);
+  const manifest = manifestPath(artifactDigest);
 
-  copyLocalProject(REPO, environments.dev.root);
-  writeRuntimeMetadata(environments.dev.root, {
-    environment: 'DEV',
-    feature: 'Development checkout',
-    version: runGit(['rev-parse', '--short', 'HEAD']),
-    build: 'DeployForge DEV',
-    sourceMainSha: runGit(['rev-parse', 'HEAD']),
-    sourceLocalFingerprint: fingerprint,
-    source: 'local-checkout',
-    synchronizedAt: new Date().toISOString(),
-  });
-  invalidateApplicationRuntime(environments.dev);
-};
+  if (!existsSync(manifest)) {
+    clearDirectory(destination);
+    archiveRef(mainSha, destination);
+    writeFileSync(manifest, JSON.stringify({
+      repository: REPO,
+      baseMainSha: mainSha,
+      prNumbers: [],
+      prHeadShas: {},
+      integrationSha: mainSha,
+      artifactDigest,
+      source: 'main',
+      createdAt: new Date().toISOString(),
+    }, null, 2) + '\n', 'utf8');
+  }
 
-const startDevSync = () => {
-  let timer;
-  const schedule = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      try { syncDevProject(); } catch (error) {
-        console.error('DEV sync failed:', error instanceof Error ? error.message : error);
-      }
-    }, 100);
-  };
-
-  try {
-    watch(REPO, { recursive: true }, (_eventType, filename) => {
-      if (!filename) return;
-      const path = String(filename);
-      if (path.split(/[\\/]/).some((part) => localDevExcluded.has(part))) return;
-      schedule();
+  for (const environmentName of ['hmg', 'prod']) {
+    const environment = environments[environmentName];
+    installArtifact(artifactDigest, environment, {
+      environment: environmentName.toUpperCase(),
+      feature: 'Base main',
+      version: mainSha.slice(0, 12),
+      build: 'base-main-' + mainSha.slice(0, 12),
+      artifactDigest,
+      sourceMainSha: mainSha,
+      base: true,
+      restoredAt: new Date().toISOString(),
     });
-  } catch (error) {
-    console.warn('Recursive DEV watch unavailable; using polling:', error instanceof Error ? error.message : error);
   }
-
-  setInterval(() => {
-    try { syncDevProject(); } catch {}
-  }, 2000);
 };
 
 const canonicalArtifactMetadata = (digest, metadata) => {
@@ -1282,11 +1295,71 @@ ensureDirs();
 await initializeFeatureFlags();
 runGit(['fetch', 'origin', BASE_BRANCH]);
 
-syncDevProject();
-startDevSync();
+// DEV is the project root; HMG and PROD are deployed environment folders.
+// On startup, restore the latest materialized release. If none exists,
+// materialize the current main revision as the BASE release.
+const bootstrapDeployedEnvironments = () => {
+  const latest = findLatestArtifact();
 
-// HMG and PROD intentionally start empty. Bootstrap BASE explicitly with
-// npm run demo:bootstrap-base after a clean start.
+  if (latest?.artifactDigest && existsSync(manifestPath(latest.artifactDigest))) {
+    const manifest = JSON.parse(readFileSync(manifestPath(latest.artifactDigest), 'utf8'));
+
+    for (const environmentName of ['hmg', 'prod']) {
+      const environment = environments[environmentName];
+      installArtifact(latest.artifactDigest, environment, {
+        environment: environmentName.toUpperCase(),
+        feature: latest.source === 'main' ? 'Base main' : 'Latest release',
+        version: manifest.integrationSha.slice(0, 12),
+        build: latest.source === 'main'
+          ? 'base-main-' + manifest.integrationSha.slice(0, 12)
+          : 'latest-' + manifest.integrationSha.slice(0, 12),
+        artifactDigest: latest.artifactDigest,
+        ...(latest.source === 'main' ? { base: true } : {}),
+        restoredAt: new Date().toISOString(),
+      });
+    }
+
+    return;
+  }
+
+  const mainSha = runGit(['rev-parse', 'origin/' + BASE_BRANCH]);
+  const artifactDigest = 'sha256:' + createHash('sha256')
+    .update(JSON.stringify({ type: 'base', repository: REPO, mainSha }))
+    .digest('hex');
+  const destination = artifactDir(artifactDigest);
+  const manifest = manifestPath(artifactDigest);
+
+  if (!existsSync(manifest)) {
+    clearDirectory(destination);
+    archiveRef(mainSha, destination);
+    writeFileSync(manifest, JSON.stringify({
+      repository: REPO,
+      baseMainSha: mainSha,
+      prNumbers: [],
+      prHeadShas: {},
+      integrationSha: mainSha,
+      artifactDigest,
+      source: 'main',
+      createdAt: new Date().toISOString(),
+    }, null, 2) + '\n', 'utf8');
+  }
+
+  for (const environmentName of ['hmg', 'prod']) {
+    const environment = environments[environmentName];
+    installArtifact(artifactDigest, environment, {
+      environment: environmentName.toUpperCase(),
+      feature: 'Base main',
+      version: mainSha.slice(0, 12),
+      build: 'base-main-' + mainSha.slice(0, 12),
+      artifactDigest,
+      sourceMainSha: mainSha,
+      base: true,
+      restoredAt: new Date().toISOString(),
+    });
+  }
+};
+
+bootstrapDeployedEnvironments();
 
 Object.entries(environments).forEach(([name, environment]) => {
   staticServer(environment, environment.port).listen(environment.port, '127.0.0.1', () => {
