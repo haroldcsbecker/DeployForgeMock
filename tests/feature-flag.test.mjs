@@ -84,7 +84,7 @@ payment-mode:
 
   const registered = buildFeatureFlagRegistry({
     deployedSources: [deployedFlags],
-    existingSource: '{}\\n',
+    existingSource: '{}\n',
   });
 
   assert.match(registered, /^fraud-mode:/m);
