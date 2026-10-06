@@ -17,6 +17,7 @@ jobs:
         with:
           node-version: 24
       - run: npm install
+      - run: node --check scripts/demo-reset-all.mjs
       - name: Start GO Feature Flag
         run: docker compose up -d go-feature-flag
       - name: Wait for GO Feature Flag
