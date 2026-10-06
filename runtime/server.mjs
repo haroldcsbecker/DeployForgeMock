@@ -1050,10 +1050,8 @@ const controlServer = createServer(async (request, response) => {
       const destination = artifactDir(artifactDigest);
       const manifest = manifestPath(artifactDigest);
 
-      // QA reset is a hard local reset: Mongo state is reset by DeployForge,
-      // while this runtime owns its own artifact filesystem. Remove every
-      // generated artifact so startup cannot resurrect an old HMG deployment.
-      clearDirectory(ARTIFACT_ROOT);
+      // QA reset only changes the active HMG runtime. Historical artifacts
+      // remain materialized so Git-release history can deploy them later.
       rmSync(originBuildPath, { force: true });
 
       if (!existsSync(manifest)) {
