@@ -298,7 +298,7 @@ const recreateDemoPrs = () => {
     if (!known) continue;
 
     console.log('[DeployForgeMock] closing demo PR #' + pr.number + ' (' + title + ')');
-    runOptional('gh', ['pr', 'close', String(pr.number), '--repo', REPOSITORY, '--delete-branch', '--yes']);
+    runOptional('gh', ['pr', 'close', String(pr.number), '--repo', REPOSITORY, '--delete-branch']);
     runOptional('gh', ['api', '--method', 'DELETE', '/repos/' + REPOSITORY + '/git/refs/heads/' + branch]);
   }
 
@@ -356,6 +356,16 @@ const recreateDemoPrs = () => {
 
   console.log('[DeployForgeMock] recreated ' + created.length + ' demo PRs.');
 };
+
+const currentBranch = run('git', ['branch', '--show-current']);
+if (currentBranch !== 'main') {
+  throw new Error('Run the complete demo reset from the main branch checkout.');
+}
+
+const workingTree = run('git', ['status', '--porcelain']);
+if (workingTree) {
+  throw new Error('Working tree must be clean before the complete demo reset.');
+}
 
 console.log('[DeployForgeMock] Starting complete local/demo reset.');
 console.log('[DeployForgeMock] This reset never deletes the Git repository itself.');
