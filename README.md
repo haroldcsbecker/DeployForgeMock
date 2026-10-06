@@ -29,11 +29,19 @@ There is no custom Feature Flag registry, Feature Switch layer, runtime proxy, o
 
 ## Flags
 
-Current demo flags:
+Main intentionally starts with no feature flags. The GO Feature Flag source configuration is an empty map:
 
-- fraud-mode: legacy | rule-based
-- checkout-mode: legacy | new
-- payment-mode: legacy | new | canary
+~~~yaml
+{}
+~~~
+
+The runtime manifest therefore exposes:
+
+~~~json
+{ "flags": [] }
+~~~
+
+Feature-flag QA PRs introduce individual flags so the HMG flow can be tested independently.
 
 GO Feature Flag configuration is stored in:
 
@@ -66,7 +74,15 @@ GO Feature Flag provider
 GO Feature Flag relay :1031
 ~~~
 
-Start GO Feature Flag:
+Reset the complete local demo environment:
+
+~~~bash
+npm run demo:reset
+~~~
+
+This clears Mongo-independent mock deployment state, restarts GO Feature Flag, verifies an empty main manifest, cleans generated releases/packages, and recreates the example PR fixtures.
+
+Start GO Feature Flag manually when needed:
 
 ~~~bash
 docker compose up -d go-feature-flag
