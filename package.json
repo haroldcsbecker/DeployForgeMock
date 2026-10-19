@@ -2,17 +2,15 @@
   "name": "deployforge-mock",
   "version": "1.0.0",
   "private": true,
-  "description": "Tiny deployment target used to showcase DeployForge.",
+  "description": "Example application and local deployment target for DeployForge CI/CD.",
   "scripts": {
     "test": "node --test",
     "demo:start": "node runtime/server.mjs",
-    "demo:check": "node --check runtime/server.mjs",
-    "demo:reset": "node scripts/demo-reset-all.mjs",
+    "demo:check": "node --check runtime/server.mjs && node --check runtime/deployment-contract.mjs && node --check runtime/app-container.mjs && node --check runtime/order-service.mjs && node --check scripts/reset-local-runtime.mjs && node --check scripts/verify-reset-artifacts.mjs",
+    "demo:reset": "node scripts/reset-local-runtime.mjs",
     "verify:reset": "node scripts/verify-reset-artifacts.mjs"
   },
   "dependencies": {
-    "awilix": "13.0.5",
-    "@openfeature/server-sdk": "1.23.0",
-    "@openfeature/go-feature-flag-provider": "1.4.0"
+    "awilix": "13.0.5"
   }
 }

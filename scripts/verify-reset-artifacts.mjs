@@ -1,30 +1,40 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const source = readFileSync('runtime/server.mjs', 'utf8');
+const server = readFileSync('runtime/server.mjs', 'utf8');
+const resetHelper = readFileSync('scripts/reset-local-runtime.mjs', 'utf8');
 
-const resetIndex = source.indexOf("request.url === '/deploy/hmg/reset'");
-assert.notEqual(resetIndex, -1, 'HMG reset route missing');
+const cleanStart = server.indexOf('const cleanDemoState = () => {');
+const cleanEnd = server.indexOf('\n};', cleanStart);
+assert.ok(cleanStart >= 0 && cleanEnd > cleanStart, 'local generated-state cleanup function missing');
+const clean = server.slice(cleanStart, cleanEnd);
 
-const resetSource = source.slice(resetIndex, resetIndex + 4000);
+assert.match(clean, /clearDirectory\(environments\.hmg\.root\)/);
+assert.match(clean, /clearDirectory\(environments\.prod\.root\)/);
+assert.match(clean, /clearDirectory\(ARTIFACT_ROOT\)/);
+assert.match(clean, /rmSync\(originBuildPath, \{ force: true \}\)/);
+assert.doesNotMatch(clean, /clearDirectory\(DEV_ROOT\)/);
+assert.doesNotMatch(clean, /clearDirectory\(REPO\)/);
 
-const clearArtifactsIndex = resetSource.indexOf('clearDirectory(ARTIFACT_ROOT)');
-const clearOriginIndex = resetSource.indexOf("rmSync(originBuildPath, { force: true })");
-const createManifestIndex = resetSource.indexOf('writeFileSync(manifest, JSON.stringify({');
+const hmgResetIndex = server.indexOf("request.url === '/deploy/hmg/reset'");
+const restoreIndex = server.indexOf("request.url === '/deploy/hmg/restore'", hmgResetIndex);
+assert.ok(hmgResetIndex >= 0 && restoreIndex > hmgResetIndex, 'HMG reset route or following route missing');
+const hmgReset = server.slice(hmgResetIndex, restoreIndex);
+assert.match(hmgReset, /rmSync\(originBuildPath, \{ force: true \}\)/);
+assert.match(hmgReset, /installArtifact\(artifactDigest, environments\.hmg/);
+assert.doesNotMatch(hmgReset, /clearDirectory\(ARTIFACT_ROOT\)/,
+  'HMG-only reset must preserve materialized historical artifacts');
 
-assert.ok(clearArtifactsIndex >= 0, 'artifact store is not cleared');
-assert.ok(clearOriginIndex >= 0, 'origin-build marker is not cleared');
-assert.ok(createManifestIndex > clearArtifactsIndex, 'BASE manifest must be created after artifact cleanup');
+assert.match(resetHelper, /loopbackHosts/);
+assert.match(resetHelper, /redirect: 'error'/);
+assert.match(resetHelper, /method: 'POST'/);
+assert.doesNotMatch(resetHelper, /child_process|execFileSync|gh api|api\.github\.com|releases|packages/i,
+  'local reset must not mutate GitHub state');
 
-process.stdout.write('local artifact reset verification passed\n');
+const clearStart = server.indexOf('const clearDirectory =');
+const clearEnd = server.indexOf('\n};', clearStart);
+assert.ok(clearStart >= 0 && clearEnd > clearStart, 'safe directory cleanup guard missing');
+assert.match(server.slice(clearStart, clearEnd), /resolvedDirectory === resolvedRoot/);
+assert.match(server.slice(clearStart, clearEnd), /resolve\(REPO\)/);
 
-
-const cleanSource = source.slice(0, resetIndex);
-assert.doesNotMatch(cleanSource, /Object\.values\(environments\)\.forEach\(\(\{ root \}\) => clearDirectory\(root\)\)/);
-assert.match(cleanSource, /clearDirectory\(environments\.hmg\.root\)/);
-assert.match(cleanSource, /clearDirectory\(environments\.prod\.root\)/);
-assert.doesNotMatch(cleanSource, /clearDirectory\(DEV_ROOT\)/);
-assert.doesNotMatch(cleanSource, /clearDirectory\(REPO\)/);
-assert.match(cleanSource, /if \(resolvedDirectory === resolvedRoot \|\| resolvedDirectory === resolve\(REPO\)\) \{/);
-assert.match(cleanSource, /if \(resolvedDirectory === resolvedRoot \|\| resolvedDirectory === resolve\(REPO\)\) \{\n    return;/);
-assert.match(cleanSource, /resolve\(directory\)/);
+process.stdout.write('local runtime reset safety verification passed\n');

@@ -3,101 +3,115 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DeployForge Mock</title>
+    <meta name="description" content="Example application deployed by DeployForge." />
+    <title>DeployForge · Example service</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell">
-      <section class="card">
-        <p class="eyebrow">DeployForge Mock</p>
-        <h1 id="environment">ENV</h1>
-        <p id="feature">Feature: loading…</p>
-        <div class="counter">
-          <button id="decrement" type="button">−</button>
-          <strong id="count">0</strong>
-          <button id="increment" type="button">+</button>
-        </div>
+      <header class="masthead">
+        <a class="brand" href="/" aria-label="DeployForge example service home">
+          <span class="brand-mark">DF</span>
+          <span>DeployForge <span class="muted">/ Example service</span></span>
+        </a>
+        <span id="environment-pill" class="environment-pill">Loading environment</span>
+      </header>
 
-        <div class="meta">
-          <span>Version</span>
-          <strong id="version">loading…</strong>
-        </div>
-        <div class="meta">
-          <span>Runtime flag provider</span>
-          <strong>GO Feature Flag / OpenFeature</strong>
-        </div>
-        <div class="meta">
-          <span>Checkout evaluation</span>
-          <strong id="checkout-evaluation">loading…</strong>
-        </div>
-        <div class="meta">
-          <span>Payment evaluation</span>
-          <strong id="payment-evaluation">loading…</strong>
-        </div>
-        <div class="meta">
-          <span>Fraud evaluation</span>
-          <strong id="fraud-evaluation">loading…</strong>
-        </div>
-        <div class="meta">
-          <span>Build</span>
-          <strong id="build">loading…</strong>
-        </div>
+      <section class="hero">
+        <p class="eyebrow">Deployment target demonstration</p>
+        <h1>An example app,<br /><span>deployed on demand.</span></h1>
+        <p class="lede">This service is a live view of the artifact installed by DeployForge. Build decisions and production history remain in DeployForge.</p>
       </section>
+
+      <section class="grid" aria-label="Deployment details">
+        <article class="panel panel-wide">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Active runtime</p>
+              <h2>Deployment metadata</h2>
+            </div>
+            <span id="runtime-state" class="state">Loading</span>
+          </div>
+          <dl class="metadata">
+            <div><dt>Environment</dt><dd id="environment">Unknown</dd></div>
+            <div><dt>Build</dt><dd id="build">Loading…</dd></div>
+            <div><dt>Version</dt><dd id="version">Loading…</dd></div>
+            <div><dt>Artifact digest</dt><dd id="digest">Loading…</dd></div>
+            <div><dt>Source</dt><dd id="source">Loading…</dd></div>
+            <div><dt>Deployment timestamp</dt><dd id="updated-at">Loading…</dd></div>
+          </dl>
+        </article>
+
+        <article class="panel">
+          <p class="eyebrow">Sample workload</p>
+          <h2>Checkout service</h2>
+          <p class="body-copy">Run a deterministic sample checkout to verify that the active artifact serves application logic, not just static files.</p>
+          <button id="run-checkout" type="button">Run sample checkout</button>
+          <p id="checkout-status" class="checkout-status" role="status" aria-live="polite">Ready to run.</p>
+          <pre id="checkout-result" class="result" aria-label="Checkout response">No request yet.</pre>
+        </article>
+
+        <article class="panel">
+          <p class="eyebrow">Target contract</p>
+          <h2>DeployForgeMock</h2>
+          <p class="body-copy">The mock executes requested deployment operations and reports what is running. DeployForge remains authoritative for build state, approvals, promotion and History.</p>
+          <a class="text-link" href="https://github.com/haroldcsbecker/DeployForgeMock" rel="noreferrer">View project repository ↗</a>
+          <div class="contract-status">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="contract-status">Checking runtime metadata…</span>
+          </div>
+        </article>
+      </section>
+
+      <footer>
+        <span>Local demonstration runtime</span>
+        <span>DeployForgeMock · contract v1</span>
+      </footer>
     </main>
 
     <script>
-      const state = { count: 0 };
-
-      async function loadRuntimeMetadata() {
-        const response = await fetch("/deployforge-runtime.json", { cache: "no-store" });
-        if (!response.ok) throw new Error("runtime metadata unavailable");
-        const metadata = await response.json();
-        document.querySelector("#environment").textContent = String(metadata.environment || "ENV");
-        document.querySelector("#version").textContent = String(metadata.version || "unknown");
-        document.querySelector("#build").textContent = String(metadata.build || "unknown");
-        document.body.dataset.environment = String(metadata.environment || "env").toLowerCase();
-        document.querySelector("#feature").textContent =
-          "Feature: " + String(metadata.feature || "Deployment artifact");
-      }
-
-      async function loadApplicationEvaluation() {
-        try {
-          const response = await fetch("/api/checkout", { cache: "no-store" });
-          if (!response.ok) throw new Error("checkout unavailable");
-          const payload = await response.json();
-          document.querySelector("#checkout-evaluation").textContent =
-            String(payload.order?.checkout?.implementationId || "unknown");
-          document.querySelector("#payment-evaluation").textContent =
-            String(payload.order?.payment?.implementationId || "unknown");
-          document.querySelector("#fraud-evaluation").textContent =
-            String(payload.order?.payment?.fraudImplementationId || "unknown");
-        } catch {
-          document.querySelector("#checkout-evaluation").textContent = "unavailable";
-          document.querySelector("#payment-evaluation").textContent = "unavailable";
-          document.querySelector("#fraud-evaluation").textContent = "unavailable";
-        }
-      }
-
-      const render = () => {
-        document.querySelector("#count").textContent = state.count;
+      const put = (selector, value) => {
+        document.querySelector(selector).textContent = String(value ?? 'Unknown');
       };
 
-      document.querySelector("#increment").addEventListener("click", () => {
-        state.count += 1;
-        render();
+      async function loadRuntimeMetadata() {
+        const response = await fetch('/deployforge-runtime.json', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Runtime metadata is unavailable');
+        const metadata = await response.json();
+        const environment = String(metadata.environment || 'Unknown');
+        put('#environment', environment);
+        put('#environment-pill', environment);
+        put('#build', metadata.build || 'Unknown');
+        put('#version', metadata.version || 'Unknown');
+        put('#digest', metadata.artifactDigest || 'Unavailable');
+        put('#source', metadata.source || (metadata.sourceMainSha ? 'Main ' + metadata.sourceMainSha : 'Configured source'));
+        put('#updated-at', metadata.restoredAt || metadata.bootstrappedAt || metadata.updatedAt || metadata.createdAt || 'Not provided');
+        put('#runtime-state', 'Artifact active');
+        put('#contract-status', 'Runtime metadata available');
+        document.body.dataset.environment = environment.toLowerCase();
+      }
+
+      document.querySelector('#run-checkout').addEventListener('click', async () => {
+        const button = document.querySelector('#run-checkout');
+        button.disabled = true;
+        put('#checkout-status', 'Request in progress…');
+        try {
+          const response = await fetch('/api/checkout', { cache: 'no-store' });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error || 'Checkout request failed');
+          document.querySelector('#checkout-result').textContent = JSON.stringify(payload, null, 2);
+          put('#checkout-status', 'Checkout responded from ' + payload.environment);
+        } catch (error) {
+          put('#checkout-status', error instanceof Error ? error.message : 'Checkout unavailable');
+        } finally {
+          button.disabled = false;
+        }
       });
 
-      document.querySelector("#decrement").addEventListener("click", () => {
-        state.count -= 1;
-        render();
+      void loadRuntimeMetadata().catch((error) => {
+        put('#runtime-state', 'Metadata unavailable');
+        put('#contract-status', error instanceof Error ? error.message : 'Runtime metadata unavailable');
       });
-
-      void Promise.all([
-        loadRuntimeMetadata(),
-        loadApplicationEvaluation(),
-      ]).catch(() => {});
-
-      render();
     </script>
   </body>
 </html>

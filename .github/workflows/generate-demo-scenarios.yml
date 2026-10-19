@@ -34,7 +34,11 @@ jobs:
           from pathlib import Path
           path = Path("index.html")
           text = path.read_text()
-          path.write_text(text.replace("Feature: loading…", "Feature: Bot-ready scenario"))
+          old = "This service is a live view of the artifact installed by DeployForge. Build decisions and production history remain in DeployForge."
+          new = "Bot-ready scenario: this example artifact is ready for DeployForge to build, validate, and deploy. Build decisions and production history remain in DeployForge."
+          if old not in text:
+              raise SystemExit("Expected example-app text was not found; refusing to create an empty scenario PR.")
+          path.write_text(text.replace(old, new, 1))
           PY
           git add index.html
           git commit -m "feat: add bot ready scenario"
