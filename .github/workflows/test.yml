@@ -1,4 +1,4 @@
-name: Mock project tests
+name: DeployForgeMock server-flow tests
 
 on:
   push:
@@ -11,30 +11,17 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
       - run: npm install
-      - run: node --check scripts/demo-reset-all.mjs
-      - name: Start GO Feature Flag
-        run: docker compose up -d go-feature-flag
-      - name: Wait for GO Feature Flag
-        run: |
-          for attempt in {1..30}; do
-            if curl -fsS http://127.0.0.1:1031/openfeature/v0/manifest >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          docker compose logs go-feature-flag
-          exit 1
+      - run: npm run demo:check
+      - run: npm run verify:reset
       - id: tests
         run: npm test
-      - name: Stop GO Feature Flag
-        if: always()
-        run: docker compose down -v
       - name: Publish DeployForge CI status
         if: always() && github.event_name == 'pull_request'
         env:
@@ -42,4 +29,7 @@ jobs:
           RESULT: ${{ steps.tests.outcome == 'success' && 'success' || 'failure' }}
           SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          gh api             --method POST             "/repos/${{ github.repository }}/statuses/${SHA}"             -f state="${RESULT}"             -f context="deployforge/ci"             -f description="DeployForge mock CI"
+          gh api --method POST "/repos/${{ github.repository }}/statuses/${SHA}" \
+            -f state="${RESULT}" \
+            -f context="deployforge/ci" \
+            -f description="DeployForgeMock server-flow CI"

@@ -1,141 +1,67 @@
-# DeployForge Mock
+# DeployForgeMock
 
-A small deployment target used to demonstrate the DeployForge workflow with GO Feature Flag and OpenFeature.
+DeployForgeMock is an **example application and local deployment target** that demonstrates the CI/CD flow provided by [DeployForge](https://github.com/haroldcsbecker/DeployForge). It is not a second orchestrator or source of deployment decisions.
 
-## Runtime feature flags
-
-The application uses **OpenFeature** as its application-facing flag API and the official **GO Feature Flag provider** for evaluation.
-
-The runtime initializes the provider once at startup and uses remote evaluation through the GO Feature Flag relay proxy.
-
-Example:
-
-~~~js
-const paymentMode = await featureFlagClient.getStringValue(
-  'payment-mode',
-  'legacy',
-);
-
-const processors = {
-  legacy: legacyPaymentProcessor,
-  new: newPaymentProcessor,
-  canary: canaryPaymentProcessor,
-};
-
-const processor = processors[paymentMode] ?? legacyPaymentProcessor;
-~~~
-
-There is no custom Feature Flag registry, Feature Switch layer, runtime proxy, or persisted flag-value store.
-
-## Flags
-
-Main intentionally starts with no feature flags. The GO Feature Flag source configuration is an empty map:
-
-~~~yaml
-{}
-~~~
-
-The runtime manifest therefore exposes:
-
-~~~json
-{ "flags": [] }
-~~~
-
-Feature-flag QA PRs introduce individual flags so the HMG flow can be tested independently.
-
-GO Feature Flag configuration is stored in:
-
-~~~text
-flags.goff.yaml
-~~~
-
-The local relay configuration is:
-
-~~~text
-goff-proxy.yaml
-~~~
-
-HMG and Production use different OpenFeature environment attributes for targeting.
+DeployForge owns build state, source selection, approval/rejection, promotion, production History, and rollback decisions. DeployForgeMock builds/materializes the requested artifact, installs it into a local runtime environment, and exposes the application plus runtime health information.
 
 ## Local runtime
 
-The local feature-flag path is:
+| Service | Default URL |
+|---|---|
+| Control API | http://127.0.0.1:8090 |
+| DEV application | http://127.0.0.1:8081 |
+| HMG application | http://127.0.0.1:8082 |
+| PROD application | http://127.0.0.1:8083 |
 
-~~~text
-DeployForgeMock application
-        |
-        v
-OpenFeature Node.js SDK
-        |
-        v
-GO Feature Flag provider
-        |
-        v
-GO Feature Flag relay :1031
-~~~
+The control API only binds to loopback by default. Do not expose it directly to an untrusted network.
 
-Reset the complete local demo environment:
+## Requirements
 
-~~~bash
-npm run demo:reset
-~~~
+- Node.js 24
+- Git
+- A checkout with an `origin` remote and `main` available
 
-This clears Mongo-independent mock deployment state, restarts GO Feature Flag, verifies an empty main manifest, cleans generated releases/packages, and recreates the example PR fixtures.
+## Run locally
 
-Start GO Feature Flag manually when needed:
-
-~~~bash
-docker compose up -d go-feature-flag
-~~~
-
-Then start the mock:
-
-~~~bash
+```bash
 npm install
 npm run demo:start
-~~~
+```
 
-The runtime exposes:
+In another terminal, run the checks:
 
-- DEV application: http://localhost:8081
-- HMG application: http://localhost:8082
-- PROD application: http://localhost:8083
-- GO Feature Flag relay proxy: http://localhost:1031
-- deployment control API: http://localhost:8090
+```bash
+npm test
+npm run demo:check
+npm run verify:reset
+```
 
-The provider endpoint can be overridden with:
+To reset generated local runtime state while the server is running:
 
-~~~env
-GO_FEATURE_FLAG_ENDPOINT=http://127.0.0.1:1031/
-~~~
+```bash
+npm run demo:reset
+```
+
+The reset command only calls the local Mock control API. It does not mutate GitHub pull requests, releases, branches, or package versions.
+
+## Discovery and integration contract
+
+Before calling deployment operations, DeployForge can inspect:
+
+- `GET /healthz`: whether the control process is alive.
+- `GET /api/contract`: project identity, contract version, ownership boundaries, environments, and adapter capabilities.
+
+The contract version is `1`. A contract mismatch must be reported as incompatible, not as a successful target connection. Process liveness and per-environment health are distinct checks.
 
 ## Deployment model
 
-DeployForgeMock implements the physical side of the new deployment flow.
+- **DEV** serves the source checkout for local demonstration.
+- **HMG** serves the current composed test artifact. Replacing the source selection replaces the current HMG artifact.
+- **PROD** serves the artifact DeployForge has chosen to deploy.
+- **History** belongs to DeployForge. DeployForgeMock does not make rollback decisions or maintain production business history.
 
-HMG receives one current artifact:
+The deployed example application displays runtime metadata and provides a deterministic sample checkout endpoint. Those behaviors make the artifact currently running in each environment observable during a demonstration.
 
-~~~text
-Main + selected PRs = current HMG artifact
-~~~
+## Safety boundary
 
-A new selection replaces the current HMG artifact by rebuilding and deploying the composition. The mock does not persist a batch, candidate queue, or HMG artifact history.
-
-Production receives the production artifact selected by DeployForge. Production rollback can restore a production release through the deployment adapter.
-
-## Validation
-
-Run:
-
-~~~bash
-docker compose up -d go-feature-flag
-npm test
-npm run demo:check
-docker compose down -v
-~~~
-
-The tests verify OpenFeature initialization, string and boolean evaluation, environment targeting, runtime configuration refresh, and application service behavior.
-
-## Local flag editing
-
-The control API exposes `POST /feature-flags/update` for the DeployForge local UI. It edits `flags.goff.yaml`; the relay proxy polls that file and applies the new targeting value without restarting.
+Deployment mutation endpoints are intended for a trusted local development environment. Keep the API on loopback unless authenticated access and network controls are added. Never use this simulator as a real production deployment target.

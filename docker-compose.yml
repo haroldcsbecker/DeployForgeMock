@@ -1,8 +1,0 @@
-services:
-  go-feature-flag:
-    image: gofeatureflag/go-feature-flag:v1.55.2
-    ports:
-      - "1031:1031"
-    volumes:
-      - ./goff-proxy.yaml:/goff/goff-proxy.yaml:ro
-      - ./flags.goff.yaml:/goff/flags.goff.yaml:ro

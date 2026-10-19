@@ -1,12 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, watch } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { createApplicationRuntime } from './app-container.mjs';
-import { initializeFeatureFlags } from './feature-flags/open-feature.mjs';
-import { buildFeatureFlagRegistry } from './feature-flags/registry.mjs';
+import { handleControlMetadataRequest } from './deployment-contract.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENV_ROOT = join(ROOT, 'environments');
@@ -16,10 +15,20 @@ const DEV_ROOT = REPO;
 const API_PORT = Number(process.env.DEPLOYFORGE_MOCK_CONTROL_PORT ?? 8090);
 const BASE_BRANCH = process.env.DEPLOYFORGE_MOCK_BASE_BRANCH ?? 'main';
 
+const configuredPort = (name, fallback) => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(name + ' must be an integer from 1 to 65535');
+  }
+  return port;
+};
+
 const environments = {
-  dev: { port: 8081, root: DEV_ROOT },
-  hmg: { port: 8082, root: join(ENV_ROOT, 'hmg', 'current') },
-  prod: { port: 8083, root: join(ENV_ROOT, 'prod', 'current') },
+  dev: { port: configuredPort('DEPLOYFORGE_MOCK_DEV_PORT', 8081), root: DEV_ROOT },
+  hmg: { port: configuredPort('DEPLOYFORGE_MOCK_HMG_PORT', 8082), root: join(ENV_ROOT, 'hmg', 'current') },
+  prod: { port: configuredPort('DEPLOYFORGE_MOCK_PROD_PORT', 8083), root: join(ENV_ROOT, 'prod', 'current') },
 };
 
 const ensureDirs = () => {
@@ -32,35 +41,8 @@ const digestKey = (digest) => digest.replace(/[^a-zA-Z0-9._-]/g, '_');
 const artifactDir = (digest) => join(ARTIFACT_ROOT, digestKey(digest));
 const manifestPath = (digest) => join(artifactDir(digest), 'deployforge-artifact.json');
 const originBuildPath = join(ROOT, 'origin-build.json');
-const featureFlagConfigPath = join(ROOT, 'flags.goff.yaml');
 
-const readDeployedFeatureFlagSource = (environmentName) => {
-  const deployedPath = join(environments[environmentName].root, 'flags.goff.yaml');
-  return existsSync(deployedPath) ? readFileSync(deployedPath, 'utf8') : '{}\n';
-};
-
-const syncFeatureFlagsFromDeployments = (preferredEnvironment = 'hmg') => {
-  const order = preferredEnvironment === 'prod'
-    ? ['prod', 'hmg']
-    : ['hmg', 'prod'];
-
-  const nextSource = buildFeatureFlagRegistry({
-    deployedSources: order.map(readDeployedFeatureFlagSource),
-    existingSource: existsSync(featureFlagConfigPath)
-      ? readFileSync(featureFlagConfigPath, 'utf8')
-      : '{}\n',
-  });
-
-  const currentSource = existsSync(featureFlagConfigPath)
-    ? readFileSync(featureFlagConfigPath, 'utf8')
-    : '{}\n';
-
-  if (currentSource.replace(/\r\n/g, '\n') !== nextSource) {
-    writeFileSync(featureFlagConfigPath, nextSource, 'utf8');
-  }
-
-  return nextSource;
-};
+class DeploymentConflictError extends Error {}
 
 const applicationRuntimeCache = new Map();
 
@@ -350,7 +332,7 @@ const createHmgArtifact = ({ artifactId, artifactDigest, repository, baseMainSha
       runGit(['fetch', 'origin', '+refs/pull/' + number + '/head:' + ref]);
 
       const actualSha = runGit(['rev-parse', ref]);
-      if (actualSha !== expectedSha) throw new Error('PR #' + number + ' changed from ' + expectedSha + ' to ' + actualSha);
+      if (actualSha !== expectedSha) throw new DeploymentConflictError('PR #' + number + ' changed from ' + expectedSha + ' to ' + actualSha);
 
       try {
         execFileSync('git', ['-C', temp, 'merge', '--no-ff', '--no-edit', ref], { stdio: 'pipe' });
@@ -597,69 +579,10 @@ const parseBody = async (request) => {
   return data ? JSON.parse(data) : {};
 };
 
-const updateFeatureFlagVariation = ({ key, environment, value }) => {
-  if (!/^[A-Za-z0-9._-]+$/.test(key)) throw new Error('Invalid feature flag key');
-  if (!['hmg', 'production'].includes(environment)) {
-    throw new Error('environment must be hmg or production');
-  }
-
-  const flagsPath = join(ROOT, 'flags.goff.yaml');
-  const source = readFileSync(flagsPath, 'utf8');
-  const lines = source.split(/\r?\n/);
-  const start = lines.findIndex((line) => line === key + ':');
-  if (start < 0) throw new Error('Feature flag not found: ' + key);
-
-  let end = lines.length;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (lines[index] && !/^\s/.test(lines[index])) {
-      end = index;
-      break;
-    }
-  }
-
-  const block = lines.slice(start, end);
-  const variationsStart = block.findIndex((line) => line === '  variations:');
-  const targetingStart = block.findIndex((line) => line === '  targeting:');
-  const variationNames = [];
-  const variationEnd = targetingStart >= 0 ? targetingStart : block.length;
-
-  if (variationsStart >= 0) {
-    for (let index = variationsStart + 1; index < variationEnd; index += 1) {
-      const match = /^    ([A-Za-z0-9._-]+):/.exec(block[index]);
-      if (match) variationNames.push(match[1]);
-    }
-  }
-
-  if (!variationNames.includes(value)) {
-    throw new Error('Unsupported variation "' + value + '". Allowed: ' + variationNames.join(', '));
-  }
-
-  if (environment === 'production') {
-    const defaultRuleStart = block.findIndex((line) => line === '  defaultRule:');
-    if (defaultRuleStart < 0 || !block[defaultRuleStart + 1]?.startsWith('    variation:')) {
-      throw new Error('Production default rule is not configured for ' + key);
-    }
-    block[defaultRuleStart + 1] = '    variation: ' + value;
-  } else {
-    const queryIndex = block.findIndex((line) => line === '    - query: environment eq "hmg"');
-    if (queryIndex < 0 || !block[queryIndex + 1]?.startsWith('      variation:')) {
-      throw new Error('HMG targeting rule is not configured for ' + key);
-    }
-    block[queryIndex + 1] = '      variation: ' + value;
-  }
-
-  lines.splice(start, end - start, ...block);
-  writeFileSync(flagsPath, lines.join('\n'), 'utf8');
-
-  return {
-    key,
-    environment,
-    value,
-  };
-};
-
 const controlServer = createServer(async (request, response) => {
   try {
+    if (handleControlMetadataRequest(request, response, json)) return;
+
     if (request.method === 'POST' && request.url === '/demo/reset') {
       cleanDemoState();
       runGit(['fetch', 'origin', BASE_BRANCH, '--quiet']);
@@ -799,10 +722,6 @@ const controlServer = createServer(async (request, response) => {
           updatedAt: metadata.bootstrappedAt,
         });
       }
-
-      syncFeatureFlagsFromDeployments(
-        target === 'prod' ? 'prod' : 'hmg',
-      );
 
       return json(response, 200, {
         ok: true,
@@ -989,7 +908,6 @@ const controlServer = createServer(async (request, response) => {
         environment: 'HMG',
         ...originBuild,
       });
-      syncFeatureFlagsFromDeployments('hmg');
 
       const currentDevDigest = activeArtifactDigest('dev');
       const currentProdDigest = activeArtifactDigest('prod');
@@ -1062,7 +980,6 @@ const controlServer = createServer(async (request, response) => {
                 resetAt: new Date().toISOString(),
       });
       writeOriginBuild(originBuild);
-      syncFeatureFlagsFromDeployments('hmg');
 
       return json(response, 200, {
         deploymentId: 'hmg-reset-' + mainSha.slice(0, 12),
@@ -1105,7 +1022,6 @@ const controlServer = createServer(async (request, response) => {
           updatedAt: restoredAt,
         });
       }
-      syncFeatureFlagsFromDeployments('hmg');
 
       return json(response, 200, {
         deploymentId: 'hmg-restore-' + releaseId + '-' + digestKey(artifactDigest).slice(-12),
@@ -1115,7 +1031,6 @@ const controlServer = createServer(async (request, response) => {
 
     if (request.method === 'POST' && request.url === '/deploy/hmg/remove') {
       clearDirectory(environments.hmg.root);
-      syncFeatureFlagsFromDeployments('hmg');
       return json(response, 200, { ok: true, removed: true });
     }
 
@@ -1150,7 +1065,6 @@ const controlServer = createServer(async (request, response) => {
         excludedPrIds,
         rebuiltAt: new Date().toISOString(),
       });
-      syncFeatureFlagsFromDeployments('hmg');
 
       return json(response, 200, {
         artifactDigest: manifest.artifactDigest,
@@ -1207,7 +1121,6 @@ const controlServer = createServer(async (request, response) => {
         artifactReleaseId: sourceReleaseId,
         rebuiltAt: new Date().toISOString(),
       });
-      syncFeatureFlagsFromDeployments('hmg');
 
       return json(response, 200, {
         artifactDigest,
@@ -1252,7 +1165,6 @@ const controlServer = createServer(async (request, response) => {
       if (currentDevDigest !== preservedDevDigest || currentHmgDigest !== preservedHmgDigest) {
         throw new Error('Production deployment violated environment isolation: DEV/HMG changed unexpectedly');
       }
-      syncFeatureFlagsFromDeployments('prod');
 
       return json(response, 200, {
         deploymentId: 'prod-' + body.releaseId + '-' + digestKey(body.artifactDigest).slice(-16),
@@ -1265,23 +1177,6 @@ const controlServer = createServer(async (request, response) => {
 
 
 
-    if (request.method === 'POST' && request.url === '/feature-flags/update') {
-      const body = await parseBody(request);
-      const key = String(body.key ?? '');
-      const environment = String(body.environment ?? '');
-      const value = String(body.value ?? '');
-      if (!key || !environment || !value) {
-        return json(response, 400, { error: 'key, environment and value are required' });
-      }
-
-      try {
-        const updated = updateFeatureFlagVariation({ key, environment, value });
-        return json(response, 200, { ok: true, ...updated });
-      } catch (error) {
-        return json(response, 409, { error: error instanceof Error ? error.message : 'Unable to update feature flag' });
-      }
-    }
-
     if (request.method === 'POST' && request.url === '/prod/health') {
       const body = await parseBody(request);
       const healthy = existsSync(join(environments.prod.root, 'deployforge-runtime.json'));
@@ -1290,7 +1185,8 @@ const controlServer = createServer(async (request, response) => {
 
     return json(response, 404, { error: 'Not found' });
   } catch (error) {
-    return json(response, 500, { error: error instanceof Error ? error.message : 'Unknown runtime error' });
+    const status = error instanceof DeploymentConflictError ? 409 : 500;
+    return json(response, status, { error: error instanceof Error ? error.message : 'Unknown runtime error' });
   }
 });
 
@@ -1354,8 +1250,6 @@ runGit(['fetch', 'origin', BASE_BRANCH]);
 // materialize the current main revision as the BASE release.
 
 bootstrapDeployedEnvironments();
-syncFeatureFlagsFromDeployments('hmg');
-await initializeFeatureFlags();
 
 Object.entries(environments).forEach(([name, environment]) => {
   staticServer(environment, environment.port).listen(environment.port, '127.0.0.1', () => {
